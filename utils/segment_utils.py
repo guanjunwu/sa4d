@@ -10,27 +10,24 @@ from utils.sh_utils import SH2RGB
 
 to8b = lambda x : (255*np.clip(x.cpu().numpy(),0,1)).astype(np.uint8)
 
-def get_combined_args(parser : ArgumentParser, model_path, target_cfg_file = None):
+def get_combined_args(parser : ArgumentParser, model_path, target):
     cmdlne_string = ['--model_path', model_path]
     cfgfile_string = "Namespace()"
     args_cmdline = parser.parse_args(cmdlne_string)
     
-    if target_cfg_file is None:
-        if args_cmdline.target == 'seg':
-            target_cfg_file = "seg_cfg_args"
-        elif args_cmdline.target == 'scene':
-            target_cfg_file = "cfg_args"
-        elif args_cmdline.target == 'feature' or args_cmdline.target == 'contrastive_feature' :
-            target_cfg_file = "feature_cfg_args"
+    if target == 'scene':
+        target_cfg_file = "cfg_args"
+    elif target == 'feature': 
+        target_cfg_file = "feature_cfg_args"
 
     try:
         cfgfilepath = os.path.join(model_path, target_cfg_file)
         print("Looking for config file in", cfgfilepath)
         with open(cfgfilepath) as cfg_file:
-            print("Config file found: {}".format(cfgfilepath))
+            print("Config file found at: {}".format(cfgfilepath))
             cfgfile_string = cfg_file.read()
     except TypeError:
-        print("Config file found: {}".format(cfgfilepath))
+        print("Config file not found at: {}".format(cfgfilepath))
         pass
     args_cfgfile = eval(cfgfile_string)
 
@@ -95,7 +92,7 @@ def postprocess_statistical_filtering(pcd, precomputed_mask = None, max_time = 5
 
     std_nearest_k_distance = 10
     
-    while std_nearest_k_distance > 0.1 and max_time > 0:
+    while std_nearest_k_distance > 0.1: # and max_time > 0:
         nearest_k_distance = pytorch3d.ops.knn_points(
             pcd.unsqueeze(0),
             pcd.unsqueeze(0),
@@ -111,30 +108,38 @@ def postprocess_statistical_filtering(pcd, precomputed_mask = None, max_time = 5
         pcd = pcd[mask,:]
         if precomputed_mask is not None:
             precomputed_mask[precomputed_mask != 0] = mask
-        max_time -= 1
-        
-    return pcd.squeeze(), nearest_k_distance.mean(), precomputed_mask
-
-def postprocess_grad_based_statistical_filtering(pcd, precomputed_mask, feature_gaussians, view, sam_mask, pipeline_args):
-    start_time = time.time()
+        # max_time -= 1
+        # num_points = pcd.shape[0]
     
-    background = torch.zeros(feature_gaussians.get_opacity.shape[0], 3, device = 'cuda')
+    test_nearest_k_distance = pytorch3d.ops.knn_points(
+        pcd.unsqueeze(0),
+        pcd.unsqueeze(0),
+        K=2,
+    ).dists
+    # mean_nearest_k_distance, std_nearest_k_distance = test_nearest_k_distance[:,:,1:].mean(), test_nearest_k_distance[:,:,1:].std()
+    test_threshold = torch.max(test_nearest_k_distance)
+    
+    return pcd.squeeze(), test_threshold, precomputed_mask
+    
+def postprocess_grad_based_statistical_filtering(pcd, precomputed_mask, gaussians, view, sam_mask, pipeline_args, bg_color):
+    # start_time = time.time()
+    
+    # background = torch.zeros(gaussians.get_opacity.shape[0], 3, device = 'cuda')
 
     # project 2D mask onto the segmented Gaussians
-    grad_catch_mask = torch.zeros(feature_gaussians.get_opacity.shape[0], 1, device = 'cuda')
+    grad_catch_mask = torch.zeros(gaussians.get_opacity.shape[0], 1, device = 'cuda')
     grad_catch_mask[precomputed_mask, :] = 1
     grad_catch_mask.requires_grad = True
 
     grad_catch_2dmask = render(
         view, 
-        feature_gaussians, 
+        gaussians, 
         pipeline_args, 
-        background,
+        bg_color,
         filtered_mask=~precomputed_mask, 
-        override_color=None, #torch.zeros(feature_gaussians.get_opacity.shape[0], 3, device = 'cuda'),
+        override_color=None, #torch.zeros(gaussians.get_opacity.shape[0], 3, device = 'cuda'),
         override_mask=grad_catch_mask,
         )['mask']
-
 
     target_mask = torch.tensor(sam_mask, device=grad_catch_2dmask.device)
     target_mask = torch.nn.functional.interpolate(target_mask.unsqueeze(0).unsqueeze(0).float(), size=grad_catch_2dmask.shape[-2:] , mode='bilinear').squeeze(0).repeat([3,1,1])
@@ -162,7 +167,7 @@ def postprocess_grad_based_statistical_filtering(pcd, precomputed_mask, feature_
     confirmed_point = pcd[confirmed_mask == 1]
 
     confirmed_point, _, _ = postprocess_statistical_filtering(confirmed_point, max_time=5)
-
+        
     test_nearest_k_distance = pytorch3d.ops.knn_points(
         confirmed_point.unsqueeze(0),
         confirmed_point.unsqueeze(0),
@@ -170,7 +175,7 @@ def postprocess_grad_based_statistical_filtering(pcd, precomputed_mask, feature_
     ).dists
     mean_nearest_k_distance, std_nearest_k_distance = test_nearest_k_distance[:,:,1:].mean(), test_nearest_k_distance[:,:,1:].std()
     test_threshold = torch.max(test_nearest_k_distance)
-    print("test threshold", test_threshold)
+    # print("test threshold", test_threshold)
 
     while True:
 
@@ -188,12 +193,12 @@ def postprocess_grad_based_statistical_filtering(pcd, precomputed_mask, feature_
         confirmed_point = pcd[true_mask,:]
 
     precomputed_mask[precomputed_mask == 1] = true_mask
-        
+    
     # print(time.time() - start_time)
     return confirmed_point.squeeze().detach().cpu().numpy(), precomputed_mask, test_threshold
     
 def postprocess_growing(original_pcd, point_colors, seed_pcd, seed_point_colors, thresh = 0.05, grow_iter = 1):
-    s_time = time.time()
+    # s_time = time.time()
     min_x, min_y, min_z = seed_pcd[:,0].min(), seed_pcd[:,1].min(), seed_pcd[:,2].min()
     max_x, max_y, max_z = seed_pcd[:,0].max(), seed_pcd[:,1].max(), seed_pcd[:,2].max()
 

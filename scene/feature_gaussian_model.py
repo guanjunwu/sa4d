@@ -25,7 +25,8 @@ from utils.general_utils import strip_symmetric, build_scaling_rotation
 from utils.point_utils import addpoint, combine_pointcloud, downsample_point_cloud_open3d, find_indices_in_A
 from scene.deformation import deform_network
 from scene.regulation import compute_plane_smoothness
-class FeatureGaussianModel:
+
+class GaussianModel:
 
     def setup_functions(self):
         def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
@@ -45,7 +46,8 @@ class FeatureGaussianModel:
         self.rotation_activation = torch.nn.functional.normalize
 
 
-    def __init__(self, sh_degree : int, feature_dim : int, args):
+    def __init__(self, sh_degree: int, mode: str, args, feature_dim: int = 32):
+        self.mode = mode
         self.active_sh_degree = 0
         self.max_sh_degree = sh_degree  
         self._xyz = torch.empty(0)
@@ -67,112 +69,137 @@ class FeatureGaussianModel:
         self.setup_functions()
         
         #! features
-        self.sam_feature_dim = feature_dim
-        self._sam_features = torch.empty(0)
-        print("SAM feature low dim: ", feature_dim)
+        if self.mode == "feature":
+            self.sam_feature_dim = feature_dim
+            self._sam_features = torch.empty(0)
+            self._mask = torch.empty(0)
+            self._sam_proj = torch.nn.Sequential(
+                torch.nn.Linear(256, 64, bias=True),
+                torch.nn.LayerNorm(64),
+                torch.nn.LeakyReLU(),
+                torch.nn.Linear(64, 64, bias=True),
+                torch.nn.LayerNorm(64),
+                torch.nn.LeakyReLU(),
+                torch.nn.Linear(64, feature_dim, bias=True)
+            ).cuda()
+            print("Feature Dimension: ", feature_dim)
 
     def capture(self):
-        return (
-            self.active_sh_degree,
-            self.sam_feature_dim,
-            self._xyz,
-            self._deformation.state_dict(),
-            self._deformation_table,
-            # self.grid,
-            self._sam_features,
-            self._features_dc,
-            self._features_rest,
-            self._scaling,
-            self._rotation,
-            self._opacity,
-            self.max_radii2D,
-            self.xyz_gradient_accum,
-            self.denom,
-            self.optimizer.state_dict(),
-            self.spatial_lr_scale,
+        if self.mode == "scene":
+            return (
+                self.active_sh_degree,
+                self._xyz,
+                self._deformation.state_dict(),
+                self._deformation_table,
+                # self.grid,
+                self._features_dc,
+                self._features_rest,
+                self._scaling,
+                self._rotation,
+                self._opacity,
+                self.max_radii2D,
+                self.xyz_gradient_accum,
+                self.denom,
+                self.optimizer.state_dict(),
+                self.spatial_lr_scale,
         )
+        elif self.mode == "feature":
+            #TODO: not check yet
+            return (
+                self.active_sh_degree,
+                self.sam_feature_dim,
+                self._xyz,
+                self._deformation.state_dict(),
+                self._deformation_table,
+                # self.grid,
+                self._sam_features,
+                self._features_dc,
+                self._features_rest,
+                self._scaling,
+                self._rotation,
+                self._opacity,
+                self.max_radii2D,
+                self.xyz_gradient_accum,
+                self.denom,
+                self.optimizer.state_dict(),
+                self.spatial_lr_scale,
+                self._sam_proj.state_dict()
+            )
     
     def restore(self, model_args, training_args):
-        (
-            self.active_sh_degree, 
-            self.sam_feature_dim,
-            self._xyz,
-            deform_state,
-            self._deformation_table,
+        if self.mode == "scene":
+            (
+                self.active_sh_degree, 
+                self._xyz, 
+                deform_state,
+                self._deformation_table,
+                # self.grid,
+                self._features_dc, 
+                self._features_rest,
+                self._scaling, 
+                self._rotation, 
+                self._opacity,
+                self.max_radii2D, 
+                xyz_gradient_accum, 
+                denom,
+                opt_dict, 
+                self.spatial_lr_scale
+            ) = model_args
+            self.training_setup(training_args)
+        elif self.mode == "feature":
+            (
+                self.active_sh_degree, 
+                self.sam_feature_dim,
+                self._xyz,
+                deform_state,
+                self._deformation_table,
+                # self.grid,
+                self._sam_features,
+                self._features_dc, 
+                self._features_rest,
+                self._scaling, 
+                self._rotation, 
+                self._opacity,
+                self.max_radii2D, 
+                xyz_gradient_accum, 
+                denom,
+                opt_dict, 
+                self.spatial_lr_scale,
+                sam_proj_state
+            ) = model_args
+            self.sam_feature_training_setup(training_args)
+            self._sam_proj.load_state_dict(sam_proj_state)
             
-            # self.grid,
-            self._sam_features,
-            self._features_dc, 
-            self._features_rest,
-            self._scaling, 
-            self._rotation, 
-            self._opacity,
-            self.max_radii2D, 
-            xyz_gradient_accum, 
-            denom,
-            opt_dict, 
-            self.spatial_lr_scale
-        ) = model_args
         self._deformation.load_state_dict(deform_state)
-        # self.training_setup(training_args)
-        self.sam_feature_training_setup(training_args)
         self.xyz_gradient_accum = xyz_gradient_accum
         self.denom = denom
         self.optimizer.load_state_dict(opt_dict)
 
     @property
-    def get_scaling(self,mask=None):
-        if mask:
-            return self.scaling_activation(self._scaling[mask])
-        else:
-            return self.scaling_activation(self._scaling)
+    def get_scaling(self):
+        return self.scaling_activation(self._scaling)
     
     @property
-    def get_rotation(self, mask=None):
-        if mask:
-            return self.rotation_activation(self._rotation[mask])
-        else:
-            return self.rotation_activation(self._rotation)
+    def get_rotation(self):
+        return self.rotation_activation(self._rotation)
     
     @property
-    def get_xyz(self, mask=None):
-        if mask:
-            return self._xyz[mask]
-        else:
-            return self._xyz
+    def get_xyz(self):
+        return self._xyz
 
     @property
-    def get_features(self, mask=None):
-        if mask:
-            features_dc = self._features_dc[mask]
-            features_rest = self._features_rest[mask]
-            return torch.cat((features_dc, features_rest), dim=1)
-        else:
-            features_dc = self._features_dc
-            features_rest = self._features_rest
-            return torch.cat((features_dc, features_rest), dim=1)
+    def get_features(self):
+        features_dc = self._features_dc
+        features_rest = self._features_rest
+        return torch.cat((features_dc, features_rest), dim=1)
     
     @property
     def get_sam_features(self):
         return self._sam_features
-        # if self.multi_res_features is None or self.idx_mapper is None:
-        #     return self._point_features
-        # else:
-        #     combined_feature = torch.cat([
-        #         self.multi_res_features[0][self.idx_mapper[:,0]],
-        #         self.multi_res_features[1][self.idx_mapper[:,1]],
-        #         self.multi_res_features[2][self.idx_mapper[:,2]],
-        #         self._point_features
-        #     ], dim=1)
-
-        #     return combined_feature
     
     @property
-    def get_opacity(self, mask=None):
-        if mask:
-            return self.opacity_activation(self._opacity[mask])
-        else:
-            return self.opacity_activation(self._opacity)
+    def get_opacity(self):
+        return self.opacity_activation(self._opacity)
     
     def get_covariance(self, scaling_modifier = 1):
         return self.covariance_activation(self.get_scaling, scaling_modifier, self._rotation)
@@ -189,7 +216,6 @@ class FeatureGaussianModel:
         features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
         features[:, :3, 0 ] = fused_color
         features[:, 3:, 1:] = 0.0
-        sam_features = torch.zeros((fused_point_cloud.shape[0], self.sam_feature_dim)).float().cuda()
 
         print("Number of points at initialisation : ", fused_point_cloud.shape[0])
 
@@ -203,7 +229,6 @@ class FeatureGaussianModel:
         self._xyz = nn.Parameter(fused_point_cloud.requires_grad_(True))
         self._deformation = self._deformation.to("cuda") 
         # self.grid = self.grid.to("cuda")
-        self._sam_features = nn.Parameter(sam_features.contiguous().requires_grad_(True))
         self._features_dc = nn.Parameter(features[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True))
         self._features_rest = nn.Parameter(features[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True))
         self._scaling = nn.Parameter(scales.requires_grad_(True))
@@ -211,65 +236,47 @@ class FeatureGaussianModel:
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
         self._deformation_table = torch.gt(torch.ones((self.get_xyz.shape[0]),device="cuda"),0)
-    
-    def sam_feature_training_setup(self, training_args):
-        # if target == 'coarse_seg_everything':
-        #     self._point_features.data[:,:] = 0
-        # elif target == 'contrastive_feature':
-        #     self._point_features.data = torch.randn_like(self._point_features.data)
-
-            # output [N,27] pe 
-            # emb_func, dim = get_embedder(4)
-            # xyz = self.get_xyz
-            # xyz = (xyz - xyz.min()) / (xyz.max() - xyz.min()) * 2 - 1.
-            # self.pe = torch.zeros_like(self._point_features, device=self._point_features.device)
-            # self.pe.requires_grad = False
-            # self.pe[:,:dim] = emb_func(self.get_xyz)
-
-        self._sam_features.data = torch.randn_like(self._sam_features.data)
-        # self.percent_dense = training_args.percent_dense
-        # self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
-        # self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
-
-        l = [{'params': [self._sam_features], 'lr': training_args.feature_lr, "name": "sam_features"},]
-        self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
-        self.xyz_scheduler_args = get_expon_lr_func(lr_init=training_args.position_lr_init*self.spatial_lr_scale,
-                                                lr_final=training_args.position_lr_final*self.spatial_lr_scale,
-                                                lr_delay_mult=training_args.position_lr_delay_mult,
-                                                max_steps=training_args.position_lr_max_steps)
-        
-    def training_setup(self, training_args):
-        self.percent_dense = training_args.percent_dense
-        self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
-        self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
-        self._deformation_accum = torch.zeros((self.get_xyz.shape[0],3),device="cuda")
-        
-
-        l = [
-            {'params': [self._xyz], 'lr': training_args.position_lr_init * self.spatial_lr_scale, "name": "xyz"},
-            {'params': list(self._deformation.get_mlp_parameters()), 'lr': training_args.deformation_lr_init * self.spatial_lr_scale, "name": "deformation"},
-            {'params': list(self._deformation.get_grid_parameters()), 'lr': training_args.grid_lr_init * self.spatial_lr_scale, "name": "grid"},
-            {'params': [self._features_dc], 'lr': training_args.feature_lr, "name": "f_dc"},
-            {'params': [self._features_rest], 'lr': training_args.feature_lr / 20.0, "name": "f_rest"},
-            {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"},
-            {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"},
-            {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"}
             
-        ]
+    def training_setup(self, training_args):
+        if self.mode == "scene":
+            self.percent_dense = training_args.percent_dense
+            self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
+            self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
+            self._deformation_accum = torch.zeros((self.get_xyz.shape[0],3),device="cuda")
+            l = [
+                {'params': [self._xyz], 'lr': training_args.position_lr_init * self.spatial_lr_scale, "name": "xyz"},
+                {'params': list(self._deformation.get_mlp_parameters()), 'lr': training_args.deformation_lr_init * self.spatial_lr_scale, "name": "deformation"},
+                {'params': list(self._deformation.get_grid_parameters()), 'lr': training_args.grid_lr_init * self.spatial_lr_scale, "name": "grid"},
+                {'params': [self._features_dc], 'lr': training_args.feature_lr, "name": "f_dc"},
+                {'params': [self._features_rest], 'lr': training_args.feature_lr / 20.0, "name": "f_rest"},
+                {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"},
+                {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"},
+                {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"}
+                
+            ]
 
-        self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
-        self.xyz_scheduler_args = get_expon_lr_func(lr_init=training_args.position_lr_init*self.spatial_lr_scale,
-                                                    lr_final=training_args.position_lr_final*self.spatial_lr_scale,
-                                                    lr_delay_mult=training_args.position_lr_delay_mult,
-                                                    max_steps=training_args.position_lr_max_steps)
-        self.deformation_scheduler_args = get_expon_lr_func(lr_init=training_args.deformation_lr_init*self.spatial_lr_scale,
-                                                    lr_final=training_args.deformation_lr_final*self.spatial_lr_scale,
-                                                    lr_delay_mult=training_args.deformation_lr_delay_mult,
-                                                    max_steps=training_args.position_lr_max_steps)    
-        self.grid_scheduler_args = get_expon_lr_func(lr_init=training_args.grid_lr_init*self.spatial_lr_scale,
-                                                    lr_final=training_args.grid_lr_final*self.spatial_lr_scale,
-                                                    lr_delay_mult=training_args.deformation_lr_delay_mult,
-                                                    max_steps=training_args.position_lr_max_steps)    
+            self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
+            self.xyz_scheduler_args = get_expon_lr_func(lr_init=training_args.position_lr_init*self.spatial_lr_scale,
+                                                        lr_final=training_args.position_lr_final*self.spatial_lr_scale,
+                                                        lr_delay_mult=training_args.position_lr_delay_mult,
+                                                        max_steps=training_args.position_lr_max_steps)
+            self.deformation_scheduler_args = get_expon_lr_func(lr_init=training_args.deformation_lr_init*self.spatial_lr_scale,
+                                                        lr_final=training_args.deformation_lr_final*self.spatial_lr_scale,
+                                                        lr_delay_mult=training_args.deformation_lr_delay_mult,
+                                                        max_steps=training_args.position_lr_max_steps)    
+            self.grid_scheduler_args = get_expon_lr_func(lr_init=training_args.grid_lr_init*self.spatial_lr_scale,
+                                                        lr_final=training_args.grid_lr_final*self.spatial_lr_scale,
+                                                        lr_delay_mult=training_args.deformation_lr_delay_mult,
+                                                        max_steps=training_args.position_lr_max_steps)  
+        elif self.mode == "feature":
+            self._sam_features.data = torch.randn_like(self._sam_features.data)
+            l = [{'params': [self._sam_features], 'lr': training_args.feature_lr, "name": "sam_features"},
+                 {'params': self._sam_proj.parameters(), 'lr': training_args.feature_lr, 'name': 'mlp'}]
+            self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
+            # self.xyz_scheduler_args = get_expon_lr_func(lr_init=training_args.position_lr_init*self.spatial_lr_scale,
+            #                                         lr_final=training_args.position_lr_final*self.spatial_lr_scale,
+            #                                         lr_delay_mult=training_args.position_lr_delay_mult,
+            #                                         max_steps=training_args.position_lr_max_steps)
 
     def update_learning_rate(self, iteration):
         ''' Learning rate scheduling per step '''
@@ -290,8 +297,9 @@ class FeatureGaussianModel:
     def construct_list_of_attributes(self):
         l = ['x', 'y', 'z', 'nx', 'ny', 'nz']
         # All channels except the 3 DC
-        for i in range(self._sam_features.shape[1]):
-            l.append('sam_features_{}'.format(i))
+        if self.mode == "feature":
+            for i in range(self.sam_feature_dim):
+                l.append('sam_features_{}'.format(i))
         for i in range(self._features_dc.shape[1]*self._features_dc.shape[2]):
             l.append('f_dc_{}'.format(i))
         for i in range(self._features_rest.shape[1]*self._features_rest.shape[2]):
@@ -304,7 +312,6 @@ class FeatureGaussianModel:
         return l
     
     def compute_deformation(self,time):
-        
         deform = self._deformation[:,:,:time].sum(dim=-1)
         xyz = self._xyz + deform
         return xyz
@@ -326,39 +333,50 @@ class FeatureGaussianModel:
             self._deformation_accum = torch.load(os.path.join(path, "deformation_accum.pth"), map_location="cuda")
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
         # print(self._deformation.deformation_net.grid.)
-        
+            
+    def load_mlp(self, path):
+        if self.mode == "feature":
+            self._sam_proj.load_state_dict(torch.load(os.path.join(path, "sam_proj.pt")))
+            self._sam_proj.cuda()
+        else:
+            assert False
+                    
     def save_deformation(self, path):
         torch.save(self._deformation.state_dict(),os.path.join(path, "deformation.pth"))
         torch.save(self._deformation_table,os.path.join(path, "deformation_table.pth"))
         torch.save(self._deformation_accum,os.path.join(path, "deformation_accum.pth"))
         
-    def save_masked_ply(self, path, mask):
-        mkdir_p(os.path.dirname(path))
-
-        xyz = self._xyz.detach().cpu().numpy()
-        normals = np.zeros_like(xyz)
-        sam_features =  self._sam_features[mask].detach().contiguous().cpu().numpy()
-        f_dc = self._features_dc[mask].detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
-        f_rest = self._features_rest[mask].detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
-        opacities = self._opacity[mask].detach().cpu().numpy()
-        scale = self._scaling[mask].detach().cpu().numpy()
-        rotation = self._rotation[mask].detach().cpu().numpy()
+    def save_mlp(self, path):
+        torch.save(self._sam_proj.state_dict(), os.path.join(path, "sam_proj.pt"))
         
-        dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
+    # def save_masked_ply(self, path, mask):
+    #     mkdir_p(os.path.dirname(path))
 
-        elements = np.empty(xyz.shape[0], dtype=dtype_full)
-        attributes = np.concatenate((xyz, normals, sam_features, f_dc, f_rest, opacities, scale, rotation), axis=1)
-        elements[:] = list(map(tuple, attributes))
-        el = PlyElement.describe(elements, 'vertex')
-        print(attributes.shape[0])
-        PlyData([el]).write(path)
+    #     xyz = self._xyz.detach().cpu().numpy()
+    #     normals = np.zeros_like(xyz)
+    #     sam_features =  self._sam_features[mask].detach().contiguous().cpu().numpy()
+    #     f_dc = self._features_dc[mask].detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+    #     f_rest = self._features_rest[mask].detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+    #     opacities = self._opacity[mask].detach().cpu().numpy()
+    #     scale = self._scaling[mask].detach().cpu().numpy()
+    #     rotation = self._rotation[mask].detach().cpu().numpy()
+        
+    #     dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
+
+    #     elements = np.empty(xyz.shape[0], dtype=dtype_full)
+    #     attributes = np.concatenate((xyz, normals, sam_features, f_dc, f_rest, opacities, scale, rotation), axis=1)
+    #     elements[:] = list(map(tuple, attributes))
+    #     el = PlyElement.describe(elements, 'vertex')
+    #     print(attributes.shape[0])
+    #     PlyData([el]).write(path)
         
     def save_ply(self, path):
         mkdir_p(os.path.dirname(path))
 
         xyz = self._xyz.detach().cpu().numpy()
         normals = np.zeros_like(xyz)
-        sam_features =  self._sam_features.detach().contiguous().cpu().numpy()
+        if self.mode == "feature":
+            sam_features =  self._sam_features.detach().contiguous().cpu().numpy()
         f_dc = self._features_dc.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
         f_rest = self._features_rest.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
         opacities = self._opacity.detach().cpu().numpy()
@@ -368,7 +386,10 @@ class FeatureGaussianModel:
         dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
 
         elements = np.empty(xyz.shape[0], dtype=dtype_full)
-        attributes = np.concatenate((xyz, normals, sam_features, f_dc, f_rest, opacities, scale, rotation), axis=1)
+        if self.mode == "scene":
+            attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1)
+        elif self.mode == "feature":
+            attributes = np.concatenate((xyz, normals, sam_features, f_dc, f_rest, opacities, scale, rotation), axis=1)
         elements[:] = list(map(tuple, attributes))
         el = PlyElement.describe(elements, 'vertex')
         PlyData([el]).write(path)
@@ -386,12 +407,13 @@ class FeatureGaussianModel:
                         np.asarray(plydata.elements[0]["z"])),  axis=1)
         opacities = np.asarray(plydata.elements[0]["opacity"])[..., np.newaxis]
 
-        sam_feature_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("sam_features_")]
-        sam_feature_names = sorted(sam_feature_names, key = lambda x: int(x.split('_')[-1]))
-        assert len(sam_feature_names) == self.sam_feature_dim
-        sam_features = np.zeros((xyz.shape[0], len(sam_feature_names)))
-        for idx, attr_name in enumerate(sam_feature_names):
-            sam_features[:, idx] = np.asarray(plydata.elements[0][attr_name])
+        if self.mode == "feature":
+            sam_feature_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("sam_features_")]
+            sam_feature_names = sorted(sam_feature_names, key = lambda x: int(x.split('_')[-1]))
+            assert len(sam_feature_names) == self.sam_feature_dim
+            sam_features = np.zeros((xyz.shape[0], len(sam_feature_names)))
+            for idx, attr_name in enumerate(sam_feature_names):
+                sam_features[:, idx] = np.asarray(plydata.elements[0][attr_name])
         
         features_dc = np.zeros((xyz.shape[0], 3, 1))
         features_dc[:, 0, 0] = np.asarray(plydata.elements[0]["f_dc_0"])
@@ -420,7 +442,8 @@ class FeatureGaussianModel:
             rots[:, idx] = np.asarray(plydata.elements[0][attr_name])
 
         self._xyz = nn.Parameter(torch.tensor(xyz, dtype=torch.float, device="cuda").requires_grad_(True))
-        self._sam_features = nn.Parameter(torch.tensor(sam_features, dtype=torch.float, device="cuda").contiguous().requires_grad_(True))
+        if self.mode == "feature":
+            self._sam_features = nn.Parameter(torch.tensor(sam_features, dtype=torch.float, device="cuda").contiguous().requires_grad_(True))
         self._features_dc = nn.Parameter(torch.tensor(features_dc, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
         self._features_rest = nn.Parameter(torch.tensor(features_extra, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
         self._opacity = nn.Parameter(torch.tensor(opacities, dtype=torch.float, device="cuda").requires_grad_(True))
@@ -428,7 +451,7 @@ class FeatureGaussianModel:
         self._rotation = nn.Parameter(torch.tensor(rots, dtype=torch.float, device="cuda").requires_grad_(True))
         self.active_sh_degree = self.max_sh_degree
 
-    def load_ply_from_4dgs(self, path):
+    def create_from_4dgs(self, path):
         plydata = PlyData.read(path)
 
         xyz = np.stack((np.asarray(plydata.elements[0]["x"]),
@@ -465,12 +488,18 @@ class FeatureGaussianModel:
         for idx, attr_name in enumerate(rot_names):
             rots[:, idx] = np.asarray(plydata.elements[0][attr_name])
 
-        self._xyz = nn.Parameter(torch.tensor(xyz, dtype=torch.float, device="cuda").requires_grad_(True))
-        self._features_dc = nn.Parameter(torch.tensor(features_dc, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
-        self._features_rest = nn.Parameter(torch.tensor(features_extra, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
-        self._opacity = nn.Parameter(torch.tensor(opacities, dtype=torch.float, device="cuda").requires_grad_(True))
-        self._scaling = nn.Parameter(torch.tensor(scales, dtype=torch.float, device="cuda").requires_grad_(True))
-        self._rotation = nn.Parameter(torch.tensor(rots, dtype=torch.float, device="cuda").requires_grad_(True))
+        self._xyz = torch.tensor(xyz, dtype=torch.float, device="cuda")
+        self._features_dc = torch.tensor(features_dc, dtype=torch.float, device="cuda").transpose(1, 2).contiguous()
+        self._features_rest = torch.tensor(features_extra, dtype=torch.float, device="cuda").transpose(1, 2).contiguous()
+        self._opacity = torch.tensor(opacities, dtype=torch.float, device="cuda")
+        self._scaling = torch.tensor(scales, dtype=torch.float, device="cuda")
+        self._rotation = torch.tensor(rots, dtype=torch.float, device="cuda")
+        # self._xyz = nn.Parameter(torch.tensor(xyz, dtype=torch.float, device="cuda").requires_grad_(True))
+        # self._features_dc = nn.Parameter(torch.tensor(features_dc, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
+        # self._features_rest = nn.Parameter(torch.tensor(features_extra, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
+        # self._opacity = nn.Parameter(torch.tensor(opacities, dtype=torch.float, device="cuda").requires_grad_(True))
+        # self._scaling = nn.Parameter(torch.tensor(scales, dtype=torch.float, device="cuda").requires_grad_(True))
+        # self._rotation = nn.Parameter(torch.tensor(rots, dtype=torch.float, device="cuda").requires_grad_(True))
         self.active_sh_degree = self.max_sh_degree
 
     def replace_tensor_to_optimizer(self, tensor, name):
@@ -513,7 +542,7 @@ class FeatureGaussianModel:
         optimizable_tensors = self._prune_optimizer(valid_points_mask)
 
         self._xyz = optimizable_tensors["xyz"]
-        self._sam_features = optimizable_tensors["sam_features"]
+        # self._sam_features = optimizable_tensors["sam_features"]
         self._features_dc = optimizable_tensors["f_dc"]
         self._features_rest = optimizable_tensors["f_rest"]
         self._opacity = optimizable_tensors["opacity"]

@@ -4,12 +4,10 @@ warnings.filterwarnings("ignore")
 
 import json
 import os
-import random
-
+import sys
 import numpy as np
 import torch
 from PIL import Image
-import math
 from tqdm import tqdm
 from scene.utils import Camera
 from typing import NamedTuple
@@ -43,10 +41,12 @@ class Load_hyper_data(Dataset):
                 use_bg_points=False,
                 split="train",
                 need_features = False,
-                need_masks = False
+                need_masks = False,
+                sam_mask_downsample = 4.0
                 ):
         self.features_folder = os.path.join(datadir, "sam_features", f"{int(1/ratio)}x") if need_features else None
         self.masks_folder = os.path.join(datadir, "sam_masks", f"{int(1/ratio)}x") if need_masks else None
+        self.sam_mask_downsample = sam_mask_downsample
         
         from .utils import Camera
         datadir = os.path.expanduser(datadir)
@@ -66,9 +66,8 @@ class Load_hyper_data(Dataset):
         self.val_id = dataset_json['val_ids']
         self.split = split
         if len(self.val_id) == 0:
-            self.i_train = np.array([i for i in np.arange(len(self.all_img)) if
-                            (i%4 == 0)])
-            self.i_test = self.i_train+2
+            self.i_train = np.array([i for i in np.arange(len(self.all_img)) if (i % 4 == 0)])
+            self.i_test = self.i_train + 2
             self.i_test = self.i_test[:-1,]
         else:
             self.train_id = dataset_json['train_ids']
@@ -180,7 +179,11 @@ class Load_hyper_data(Dataset):
         image_name = self.all_img[idx].split("/")[-1]
         sam_features = torch.load(os.path.join(self.features_folder, image_name.split('.')[0] + ".pt"), map_location="cpu") if self.features_folder is not None else None
         sam_masks = torch.load(os.path.join(self.masks_folder, image_name.split('.')[0] + ".pt"), map_location="cpu") if self.masks_folder is not None else None
-        
+        if sam_masks is not None:
+            sam_masks = torch.nn.functional.interpolate(sam_masks[None, ...], scale_factor=1/self.sam_mask_downsample, mode='bilinear').squeeze()
+            sam_masks[sam_masks >= 0.5] = 1
+            sam_masks[sam_masks != 1] = 0
+    
         if self.image_mask is not None and self.split == "test":
             mask = Image.open(self.image_mask[idx])
             mask = PILtoTorch(mask,None)

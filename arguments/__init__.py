@@ -121,7 +121,7 @@ class OptimizationParams(ParamGroup):
         self.zerostamp_init=False
         self.custom_sampler=None
         self.iterations = 30_000
-        self.feature_iterations = 30_000
+        self.feature_iterations = 15_000
         self.coarse_iterations = 3000
         self.position_lr_init = 0.00016
         self.position_lr_final = 0.0000016
@@ -159,21 +159,31 @@ class OptimizationParams(ParamGroup):
         self.add_point=False
         
         # Segmentation parameters
-        self.mask_lr = 1.0
-        self.optimization_times = 2
-        self.IoU_thresh = 0.5
-        self.IoA_thresh = 0.8
-        self.lamb = 0.3
+        self.sam_feature_lr = 1e-3
+        self.sam_proj_lr = 1e-4
+        # self.mask_lr = 1.0
+        # self.optimization_times = 2
+        # self.IoU_thresh = 0.5
+        # self.IoA_thresh = 0.8
+        # self.lamb = 0.3
         
         super().__init__(parser, "Optimization Parameters")
-
-def get_combined_args(parser : ArgumentParser):
+        
+def get_combined_args(parser : ArgumentParser, target_cfg='scene'):
+    # cmdlne_string = ['--model_path', model_path]
     cmdlne_string = sys.argv[1:]
     cfgfile_string = "Namespace()"
     args_cmdline = parser.parse_args(cmdlne_string)
+    
+    if target_cfg == 'scene':
+        target_cfg_file = "cfg_args"
+    elif target_cfg == 'feature': 
+        target_cfg_file = "feature_cfg_args"
+    else:
+        assert False, "Could not recognize the mode type!"
 
     try:
-        cfgfilepath = os.path.join(args_cmdline.model_path, "cfg_args")
+        cfgfilepath = os.path.join(args_cmdline.model_path, target_cfg_file)
         print("Looking for config file in", cfgfilepath)
         with open(cfgfilepath) as cfg_file:
             print("Config file found: {}".format(cfgfilepath))
@@ -187,4 +197,28 @@ def get_combined_args(parser : ArgumentParser):
     for k,v in vars(args_cmdline).items():
         if v != None:
             merged_dict[k] = v
+
     return Namespace(**merged_dict)
+
+# def get_combined_args(parser : ArgumentParser):
+#     cmdlne_string = sys.argv[1:]
+#     cfgfile_string = "Namespace()"
+#     args_cmdline = parser.parse_args(cmdlne_string)
+
+#     try:
+#         cfgfilepath = os.path.join(args_cmdline.model_path, "cfg_args")
+#         print("Looking for config file in", cfgfilepath)
+#         with open(cfgfilepath) as cfg_file:
+#             print("Config file found: {}".format(cfgfilepath))
+#             cfgfile_string = cfg_file.read()
+#     except TypeError:
+#         print("Config file not found at")
+#         pass
+#     args_cfgfile = eval(cfgfile_string)
+
+#     merged_dict = vars(args_cfgfile).copy()
+#     for k,v in vars(args_cmdline).items():
+        
+#         if v != None:
+#             merged_dict[k] = v
+#     return Namespace(**merged_dict)

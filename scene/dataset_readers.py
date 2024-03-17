@@ -388,8 +388,8 @@ def format_infos(dataset,split):
 
 
 def readHyperDataInfos(datadir, use_bg_points, eval, need_features=False, need_masks=False):
-    train_cam_infos = Load_hyper_data(datadir, 0.5, use_bg_points, split ="train", need_features=need_features, need_masks=need_masks)
-    test_cam_infos = Load_hyper_data(datadir,0.5,use_bg_points,split="test")
+    train_cam_infos = Load_hyper_data(datadir, 0.5, use_bg_points, split ="train", need_features=need_features, need_masks=need_masks, sam_mask_downsample=4.0)
+    test_cam_infos = Load_hyper_data(datadir, 0.5, use_bg_points, split="test")
     print("load finished")
     train_cam = format_hyper_data(train_cam_infos, "train")
     print("format finished")
@@ -397,14 +397,13 @@ def readHyperDataInfos(datadir, use_bg_points, eval, need_features=False, need_m
     video_cam_infos = copy.deepcopy(test_cam_infos)
     video_cam_infos.split="video"
 
-
     ply_path = os.path.join(datadir, "points3D_downsample.ply")
     pcd = fetchPly(ply_path)
     xyz = np.array(pcd.points)
 
     pcd = pcd._replace(points=xyz)
     nerf_normalization = getNerfppNorm(train_cam)
-    plot_camera_orientations(train_cam_infos, pcd.points)
+    # plot_camera_orientations(train_cam_infos, pcd.points)
     scene_info = SceneInfo(point_cloud=pcd,
                            train_cameras=train_cam_infos,
                            test_cameras=test_cam_infos,
@@ -456,29 +455,17 @@ def add_points(pointsclouds, xyz_min, xyz_max):
     return pointsclouds
     # breakpoint()
     # new_
-def readdynerfInfo(datadir,use_bg_points,eval):
+    
+def readdynerfInfo(datadir, use_bg_points, eval):
     # loading all the data follow hexplane format
     # ply_path = os.path.join(datadir, "points3D_dense.ply")
     ply_path = os.path.join(datadir, "points3D_downsample2.ply")
     from scene.neural_3D_dataset_NDC import Neural3D_NDC_Dataset
-    train_dataset = Neural3D_NDC_Dataset(
-    datadir,
-    "train",
-    1.0,
-    time_scale=1,
-    scene_bbox_min=[-2.5, -2.0, -1.0],
-    scene_bbox_max=[2.5, 2.0, 1.0],
-    eval_index=0,
-        )    
-    test_dataset = Neural3D_NDC_Dataset(
-    datadir,
-    "test",
-    1.0,
-    time_scale=1,
-    scene_bbox_min=[-2.5, -2.0, -1.0],
-    scene_bbox_max=[2.5, 2.0, 1.0],
-    eval_index=0,
-        )
+    train_dataset = Neural3D_NDC_Dataset(datadir, "train", 1.0, time_scale=1, 
+                                         scene_bbox_min=[-2.5, -2.0, -1.0], scene_bbox_max=[2.5, 2.0, 1.0], eval_index=0)    
+    test_dataset = Neural3D_NDC_Dataset(datadir, "test", 1.0, time_scale=1, 
+                                        scene_bbox_min=[-2.5, -2.0, -1.0], scene_bbox_max=[2.5, 2.0, 1.0], eval_index=0)
+    
     train_cam_infos = format_infos(train_dataset,"train")
     val_cam_infos = format_render_poses(test_dataset.val_poses,test_dataset)
     nerf_normalization = getNerfppNorm(train_cam_infos)

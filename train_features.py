@@ -12,14 +12,14 @@ import numpy as np
 import random
 import os, sys
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+# os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 import torch
 from random import randint
 from utils.loss_utils import l1_loss, ssim, l2_loss, lpips_loss
 # from gaussian_renderer import render, network_gui
 from gaussian_renderer import render_contrastive_feature
 import sys
-from scene import Scene, GaussianModel, FeatureGaussianModel
+from scene import Scene, GaussianModel
 from utils.general_utils import safe_state
 import uuid
 from tqdm import tqdm
@@ -49,40 +49,14 @@ def setup_seed(seed):
      random.seed(seed)
      torch.backends.cudnn.deterministic = True
      
-def training(dataset, hyper, opt, pipe, load_iteration, expname, testing_iterations=None, saving_iterations=None, checkpoint_iterations=None, checkpoint=None, debug_from=None):
-    # first_iter = 0
-    # tb_writer = prepare_output_and_logger(expname)
-    
+def training(dataset, hyper, opt, pipe, mode="feature", testing_iterations=None, saving_iterations=None, checkpoint_iterations=None, checkpoint=None, debug_from=None):    
     dataset.need_features = True
     dataset.need_masks = True
     
-    # gaussians = GaussianModel(dataset.sh_degree, hyper)
-    gaussians = None
-    feature_gaussians = FeatureGaussianModel(dataset.sh_degree, dataset.feature_dim, hyper)
-    # sample_rate = 1.0
-    scene = Scene(dataset, gaussians, feature_gaussians, load_iteration=load_iteration, target='contrastive_feature')
-    feature_gaussians.sam_feature_training_setup(opt)
-    # print(scene.loaded_iter)
-    # sys.exit(0)
+    gaussians = GaussianModel(dataset.sh_degree, mode, hyper, dataset.feature_dim)
+    scene = Scene(dataset, gaussians, mode=mode)
+    gaussians.training_setup(opt)
     
-    # MLP
-    sam_proj = torch.nn.Sequential(
-        torch.nn.Linear(256, 64, bias=True),
-        torch.nn.LayerNorm(64),
-        torch.nn.LeakyReLU(),
-        torch.nn.Linear(64, 64, bias=True),
-        torch.nn.LayerNorm(64),
-        torch.nn.LeakyReLU(),
-        torch.nn.Linear(64, dataset.feature_dim, bias=True)
-    )
-    sam_proj = sam_proj.cuda()
-    sam_proj.train()
-    param_group = {'params': sam_proj.parameters(), 'lr': opt.feature_lr, 'name': 'mlp'}
-    feature_gaussians.optimizer.add_param_group(param_group)
-
-    # del gaussians
-    torch.cuda.empty_cache()
-
     # background = torch.ones([dataset.feature_dim], dtype=torch.float32, device="cuda") if dataset.white_background else torch.zeros([dataset.feature_dim], dtype=torch.float32, device="cuda")
     background = torch.zeros([dataset.feature_dim], dtype=torch.float32, device="cuda")
 
@@ -92,7 +66,6 @@ def training(dataset, hyper, opt, pipe, load_iteration, expname, testing_iterati
     first_iter = 0
     final_iter = opt.feature_iterations
     viewpoint_stack = None
-    ema_loss_for_log = 0.0
     progress_bar = tqdm(range(first_iter, final_iter), desc="Training progress")
     first_iter += 1
     
@@ -134,7 +107,7 @@ def training(dataset, hyper, opt, pipe, load_iteration, expname, testing_iterati
             viewpoint_stack =  temp_list.copy()
         viewpoint_cam = viewpoint_stack.pop()
 
-        feature_gaussians.update_learning_rate(iteration)
+        gaussians.update_learning_rate(iteration)
 
         sam_features = viewpoint_cam.original_sam_features.cuda() # (1, 256, 64, 64)
         H,W = sam_features.shape[-2:]
@@ -145,55 +118,42 @@ def training(dataset, hyper, opt, pipe, load_iteration, expname, testing_iterati
         # (N_mask, 64, 64)
         sam_masks = torch.nn.functional.interpolate(sam_masks.unsqueeze(0), size=sam_features.shape[-2:] , mode='nearest').squeeze()
         nonzero_masks = sam_masks.sum(dim=(1,2)) > 0
-        # if iteration ==15:
-        #     print(nonzero_masks)
-        #     print(nonzero_masks.shape)
-        #     print(sam_masks.shape)
         # (N_nonzero_mask, 64, 64)
         sam_masks = sam_masks[nonzero_masks, :, :]
-        # if iteration >= 10:
-        #     print(sam_masks)
-        # print(nonzero_masks.device)
         #  (N_nonzero_mask, 200, 200)
         full_resolution_sam_masks = viewpoint_cam.original_sam_masks.cuda()
         full_resolution_sam_masks = full_resolution_sam_masks[nonzero_masks, :, :]
 
-        low_dim_sam_features = sam_proj(
+        low_dim_sam_features = gaussians._sam_proj(
             sam_features.reshape(-1, H*W).permute([1,0])
-            ).permute([1,0]).reshape(dataset.feature_dim, H, W)
+        ).permute([1,0]).reshape(dataset.feature_dim, H, W)
         
-        
-        # NHW, NCHW
         #! generate masked feature maps (N_masks, feature_dim, 64, 64)
         #! followed by average pooling
-        prototypes = (sam_masks.unsqueeze(1) * low_dim_sam_features).sum(dim = (2,3))
-        prototypes /= sam_masks.sum(dim=(1,2)).unsqueeze(-1)
+        # NHW, NCHW
+        feature_query = (sam_masks.unsqueeze(1) * low_dim_sam_features).sum(dim = (2,3))
+        feature_query /= sam_masks.sum(dim=(1,2)).unsqueeze(-1)
 
         #! render point features
-        render_pkg_feat = render_contrastive_feature(viewpoint_cam, feature_gaussians, pipe, background)
-        rendered_features = render_pkg_feat["render"]
-        # rendered_features = torch.randn(32, viewpoint_cam.feature_height, viewpoint_cam.feature_width).cuda()
-        # print(prototypes.shape)
-        # print(rendered_features.shape)
-        # sys.exit(0)
+        rendered_features = render_contrastive_feature(viewpoint_cam, gaussians, pipe, background)["render"]
         
         #! SAM-Guidance Loss
-        pp = torch.einsum('NC, CHW -> NHW', prototypes, rendered_features)
+        pp = torch.einsum('NC, CHW -> NHW', feature_query, rendered_features)
         prob = torch.sigmoid(pp) # (N_masks, rendered_features.height, rendered_features.width)
-        if full_resolution_sam_masks.shape[-2:] != prob.shape[-2:]:
-            full_resolution_sam_masks = torch.nn.functional.interpolate(full_resolution_sam_masks.unsqueeze(0), size=prob.shape[-2:] , mode='bilinear').squeeze()
-            full_resolution_sam_masks[full_resolution_sam_masks <= 0.5] = 0
-            full_resolution_sam_masks[full_resolution_sam_masks != 0] = 1
+        # if full_resolution_sam_masks.shape[-2:] != prob.shape[-2:]:
+        #     full_resolution_sam_masks = torch.nn.functional.interpolate(full_resolution_sam_masks.unsqueeze(0), size=prob.shape[-2:] , mode='bilinear').squeeze()
+        #     full_resolution_sam_masks[full_resolution_sam_masks <= 0.5] = 0
+        #     full_resolution_sam_masks[full_resolution_sam_masks != 0] = 1
         bce_contrastive_loss = full_resolution_sam_masks * torch.log(prob + 1e-8) + (1 - full_resolution_sam_masks) * torch.log(1 - prob + 1e-8)
         bce_contrastive_loss = -bce_contrastive_loss.mean()
 
-        rands = torch.rand(feature_gaussians.get_sam_features.shape[0], device=prob.device)
-        reg_loss = torch.relu(torch.einsum('NC,KC->NK', feature_gaussians.get_sam_features[rands > 0.9, :], prototypes)).mean()
+        rands = torch.rand(gaussians.get_sam_features.shape[0], device=prob.device)
+        reg_loss = torch.relu(torch.einsum('NC,KC->NK', gaussians.get_sam_features[rands > 0.9, :], feature_query)).mean()
         loss = bce_contrastive_loss + 0.1 * reg_loss
 
         #! Correspondance Loss
         NHW = sam_masks
-        N,H,W = NHW.shape
+        N, H, W = NHW.shape
         NL = NHW.view(N,-1)
         intersection = torch.einsum('NL,NC->LC', NL, NL)
         union = NL.sum(dim = 0, keepdim = True) + NL.sum(dim = 0, keepdim = True).T - intersection
@@ -207,15 +167,7 @@ def training(dataset, hyper, opt, pipe, load_iteration, expname, testing_iterati
         
         loss.backward()
         iter_end.record()
-        
-        # print(feature_gaussians._sam_features.grad)
-        # print(prototypes.grad)
-        # print(feature_gaussians.optimizer.state_dict()['param_groups'])
-        # for name, parms in sam_proj.named_parameters():	
-        #     print('-->name:', name, '-->grad_requirs:',parms.requires_grad, ' -->grad_value:',parms.grad)
-        # sys.exit(0)
-        # breakpoint()
-        
+                
         with torch.no_grad():
             # prob[prob > 0.5] = 1.0
             # prob[prob != 1] = 0.0
@@ -228,8 +180,8 @@ def training(dataset, hyper, opt, pipe, load_iteration, expname, testing_iterati
             
             # ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
         
-            feature_gaussians.optimizer.step()
-            feature_gaussians.optimizer.zero_grad(set_to_none = True)
+            gaussians.optimizer.step()
+            gaussians.optimizer.zero_grad(set_to_none = True)
 
             if iteration % 10 == 0:
                 progress_bar.set_postfix({
@@ -241,10 +193,11 @@ def training(dataset, hyper, opt, pipe, load_iteration, expname, testing_iterati
                 
             if iteration == final_iter:
                 progress_bar.close()
+                
+        torch.cuda.empty_cache()
     
-    scene.save_features(scene.loaded_iter)
-    torch.save(sam_proj.state_dict(), os.path.join(scene.model_path, "point_cloud/iteration_{}/".format(scene.loaded_iter) + "sam_proj.pt"))
-    
+    scene.save(scene.loaded_iter)
+        
 if __name__ == "__main__":
     # Set up command line argument parser
     # torch.set_default_tensor_type('torch.FloatTensor')
@@ -264,9 +217,9 @@ if __name__ == "__main__":
     parser.add_argument("--quiet", action="store_true")
     # parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default = None)
-    parser.add_argument("--expname", type=str, default = "")
     parser.add_argument("--configs", type=str, default = "")
-    parser.add_argument("--load_iteration", default=-1, type=int)
+    # parser.add_argument("--load_iteration", default=None, type=int)
+    parser.add_argument("--mode", type=str, default="feature")
     args = get_combined_args(parser)
     
     # args = parser.parse_args(sys.argv[1:])
@@ -284,7 +237,11 @@ if __name__ == "__main__":
     # Start GUI server, configure and run training
     # network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
-    training(lp.extract(args), hp.extract(args), op.extract(args), pp.extract(args), args.load_iteration,  args.expname)
+    
+    with open(os.path.join(args.model_path, "feature_cfg_args"), 'w') as cfg_log_f:
+        cfg_log_f.write(str(Namespace(**vars(args))))
+
+    training(lp.extract(args), hp.extract(args), op.extract(args), pp.extract(args), args.mode)
 
     # All done
     print("\nTraining complete.")

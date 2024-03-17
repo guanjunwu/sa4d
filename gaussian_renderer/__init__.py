@@ -12,7 +12,7 @@
 import torch
 import math
 from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
-from scene.gaussian_model import GaussianModel
+from scene.feature_gaussian_model import GaussianModel
 from utils.sh_utils import eval_sh
 from time import time as get_time
 import sys
@@ -124,6 +124,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         colors_precomp = override_color
 
     mask = torch.zeros((means3D_final.shape[0], 1), dtype=torch.float, device="cuda") if override_mask is None else override_mask
+    # mask = pc.get_mask if override_mask is None else override_mask
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
     # time3 = get_time()
@@ -239,7 +240,7 @@ def render_segmentation(viewpoint_camera, pc : GaussianModel, pipe, bg_color : t
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
     # time3 = get_time()
-    rendered_image, rendered_mask, radii = rasterizer(
+    rendered_image, _, radii = rasterizer(
         means3D = means3D_final,
         means2D = means2D,
         shs = shs_final,
@@ -340,9 +341,9 @@ def render_mask(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Ten
 
 from diff_gaussian_rasterization_contrastive_f import GaussianRasterizationSettings as GaussianRasterizationSettingsContrastiveF
 from diff_gaussian_rasterization_contrastive_f import GaussianRasterizer as GaussianRasterizerContrastiveF
-from scene.feature_gaussian_model import FeatureGaussianModel
+# from scene.feature_gaussian_model import GaussianModel
 
-def render_contrastive_feature(viewpoint_camera, pc : FeatureGaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, mlp = None, dropout = -1):
+def render_contrastive_feature(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, mlp = None, dropout = -1):
     """
     Render the scene. 
     
@@ -415,7 +416,7 @@ def render_contrastive_feature(viewpoint_camera, pc : FeatureGaussianModel, pipe
     #     opacity = new_opacity
     
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
-    rendered_image, radii = rasterizer(
+    rendered_feature_map, radii = rasterizer(
         means3D = means3D_final,
         means2D = means2D,
         shs = None,
@@ -427,7 +428,7 @@ def render_contrastive_feature(viewpoint_camera, pc : FeatureGaussianModel, pipe
 
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     # They will be excluded from value updates used in the splitting criteria.
-    return {"render": rendered_image,
+    return {"render": rendered_feature_map,
             "viewspace_points": screenspace_points,
             "visibility_filter" : radii > 0,
             "radii": radii}

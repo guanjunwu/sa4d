@@ -18,7 +18,7 @@ class Camera(nn.Module):
     def __init__(self, colmap_id, R, T, FoVx, FoVy, image, gt_alpha_mask,
                  image_name, uid, sam_features = None, sam_masks = None,
                  trans=np.array([0.0, 0.0, 0.0]), scale=1.0, data_device = "cuda", time = 0,
-                 mask = None, depth=None
+                 mask = None, depth=None, sam_masks_downsample=4.0
                  ):
         super(Camera, self).__init__()
 
@@ -44,6 +44,8 @@ class Camera(nn.Module):
         
         self.original_sam_features = sam_features
         self.original_sam_masks = sam_masks
+        # self.feature_width = int(self.image_width / sam_masks_downsample)
+        # self.feature_height = int(self.image_height / sam_masks_downsample)
         # a dirty hack to make sure that the feature width is always 200
         self.feature_width = 200
         self.feature_height = int(self.feature_width * self.image_height / self.image_width)

@@ -11,11 +11,11 @@
 import numpy as np
 import random
 import os, sys
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 # os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 import torch
 from random import randint
-# from utils.loss_utils import l1_loss, ssim, l2_loss, lpips_loss
+from utils.loss_utils import l1_loss, ssim, l2_loss, lpips_loss
 # from gaussian_renderer import render, network_gui
 from gaussian_renderer import render_contrastive_feature
 import sys
@@ -33,6 +33,14 @@ import lpips
 from utils.scene_utils import render_training_image
 from time import time
 import copy
+
+to8b = lambda x : (255*np.clip(x.cpu().numpy(),0,1)).astype(np.uint8)
+
+try:
+    from torch.utils.tensorboard import SummaryWriter
+    TENSORBOARD_FOUND = True
+except ImportError:
+    TENSORBOARD_FOUND = False
         
 def setup_seed(seed):
      torch.manual_seed(seed)
@@ -70,101 +78,125 @@ def training(dataset, hyper, opt, pipe, mode="feature", testing_iterations=None,
         viewpoint_stack = [i for i in train_cams]
         temp_list = copy.deepcopy(viewpoint_stack)
     
-    # batch_size = opt.batch_size
-    batch_size = 1
+    batch_size = opt.batch_size
     print("data loading done")
     if opt.dataloader:
         viewpoint_stack = scene.getTrainCameras()
-        viewpoint_stack_loader = DataLoader(viewpoint_stack, batch_size=batch_size, shuffle=True, num_workers=16, collate_fn=list)
-        random_loader = True
+        if opt.custom_sampler is not None:
+            sampler = FineSampler(viewpoint_stack)
+            viewpoint_stack_loader = DataLoader(viewpoint_stack, batch_size=batch_size,sampler=sampler,num_workers=16,collate_fn=list)
+            random_loader = False
+        else:
+            viewpoint_stack_loader = DataLoader(viewpoint_stack, batch_size=batch_size,shuffle=True,num_workers=16,collate_fn=list)
+            random_loader = True
         loader = iter(viewpoint_stack_loader)
-        
+    
+    
+    # print(len(train_cams)) # 150
+    # print(train_cams[0].original_image.shape) # (3, 800, 800)
+    # print(train_cams[0].original_sam_features.shape) # (1, 256, 64, 64)
+    # print(train_cams[0].original_sam_masks.shape) # (9, 200, 200)
+    # print(scene.feature_gaussians.get_sam_features.shape) # (27484, 32)
+    # sys.exit(0)
+    
     for iteration in range(first_iter, final_iter + 1):   
         iter_start.record()
-
-        # Pick a random Camera
+        
+        #！ Pick a random Camera
         # dynerf's branch
-        if opt.dataloader:
+        if opt.dataloader and not load_in_memory:
             try:
-                viewpoint_cam = next(loader)[0]
+                viewpoint_cams = next(loader)
             except StopIteration:
                 print("reset dataloader into random dataloader.")
-                # if not random_loader:
-                #     viewpoint_stack_loader = DataLoader(viewpoint_stack, batch_size=opt.batch_size, shuffle=True, num_workers=32, collate_fn=list)
-                #     random_loader = True
+                if not random_loader:
+                    viewpoint_stack_loader = DataLoader(viewpoint_stack, batch_size=opt.batch_size,shuffle=True,num_workers=32,collate_fn=list)
+                    random_loader = True
                 loader = iter(viewpoint_stack_loader)
         else:
-            # idx = 0
-            # viewpoint_cams = []
-            # while idx < batch_size :    
-            #     viewpoint_cam = viewpoint_stack.pop(randint(0,len(viewpoint_stack)-1))
-            #     if not viewpoint_stack :
-            #         viewpoint_stack =  temp_list.copy()
-            #     viewpoint_cams.append(viewpoint_cam)
-            #     idx +=1
-            # if len(viewpoint_cams) == 0:
-            #     continue
+            idx = 0
+            viewpoint_cams = []
+            while idx < batch_size :    
+                viewpoint_cam = viewpoint_stack.pop(randint(0,len(viewpoint_stack)-1))
+                if not viewpoint_stack :
+                    viewpoint_stack =  temp_list.copy()
+                viewpoint_cams.append(viewpoint_cam)
+                idx +=1
+            if len(viewpoint_cams) == 0:
+                continue
             
-            if not viewpoint_stack :
-                viewpoint_stack =  temp_list.copy()
-            viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
+        # if not viewpoint_stack :
+        #     viewpoint_stack =  temp_list.copy()
+        # viewpoint_cam = viewpoint_stack.pop()
 
         gaussians.update_learning_rate(iteration)
 
-        sam_features = viewpoint_cam.original_sam_features.cuda() # (1, 256, 64, 64)
+        sam_features = []
+        sam_masks = []
+        for viewpoint_cam in viewpoint_cams:
+            sam_features.append(viewpoint_cam.original_sam_features) # (1, 256, 64, 64)
+            sam_masks.append(viewpoint_cam.original_sam_masks[None, ...]) # (N_mask, 200, 200)
+        sam_features = torch.stack(sam_features, dim=0).cuda() # (batch_size, 256, 64, 64)
+        full_resolution_sam_masks = torch.stack(sam_masks, dim=0).cuda() # (batch_size, N_mask, 200, 200)
+        # full_resolution_sam_masks = sam_masks.copy()
+        
         H,W = sam_features.shape[-2:]
 
-        # N_mask, H, W
-        # (N_mask, 200, 200)
-        sam_masks = viewpoint_cam.original_sam_masks.cuda()
-        # (N_mask, 64, 64)
-        sam_masks = torch.nn.functional.interpolate(sam_masks.unsqueeze(0), size=sam_features.shape[-2:] , mode='nearest').squeeze()
-        nonzero_masks = sam_masks.sum(dim=(1,2)) > 0
-        # (N_nonzero_mask, 64, 64)
+        # (batch_size, N_mask, 64, 64)
+        sam_masks = torch.nn.functional.interpolate(full_resolution_sam_masks, size=sam_features.shape[-2:] , mode='bilinear')# .squeeze()
+        nonzero_masks = sam_masks.sum(dim=(2, 3)) > 0
+        # (batch_size, N_nonzero_mask, 64, 64)
         sam_masks = sam_masks[nonzero_masks, :, :]
-        #  (N_nonzero_mask, 200, 200)
-        full_resolution_sam_masks = viewpoint_cam.original_sam_masks.cuda()
+        #  (batch_size, N_nonzero_mask, 200, 200)
         full_resolution_sam_masks = full_resolution_sam_masks[nonzero_masks, :, :]
 
+        # (batch_size, 256, 64, 64)
         low_dim_sam_features = gaussians._sam_proj(
-            sam_features.reshape(-1, H*W).permute([1,0])
-        ).permute([1,0]).reshape(dataset.feature_dim, H, W)
+            sam_features.permute([0, 2, 3, 1]).reshape(batch_size * H * W, -1)
+        ).reshape(batch_size, H, W, dataset.feature_dim).permute([0, 3, 1, 2])
         
-        #! generate masked feature maps (N_masks, feature_dim, 64, 64)
+        #! generate masked feature maps (batch_size, N_masks, feature_dim, 64, 64)
         #! followed by average pooling
-        # NHW, NCHW
-        feature_query = (sam_masks.unsqueeze(1) * low_dim_sam_features).sum(dim = (2,3))
-        feature_query /= sam_masks.sum(dim=(1,2)).unsqueeze(-1)
+        # BN1HW, BCHW -> BNCHW -> BNC
+        feature_query = (sam_masks.unsqueeze(2) * low_dim_sam_features).sum(dim=(3, 4))
+        # BNC, BN1 -> BNC
+        feature_query /= sam_masks.sum(dim=(2, 3)).unsqueeze(-1)
 
         #! render point features
-        rendered_features = render_contrastive_feature(viewpoint_cam, gaussians, pipe, background)["render"]
+        rendered_features = []
+        for viewpoint_cam in viewpoint_cams:
+            render_pkg = render_contrastive_feature(viewpoint_cam, gaussians, pipe, background)["render"]
+            rendered_features.append(render_pkg['render'])
+        rendered_features = torch.cat(rendered_features, 0)
         
         #! SAM-Guidance Loss
-        pp = torch.einsum('NC, CHW -> NHW', feature_query, rendered_features)
-        prob = torch.sigmoid(pp) # (N_masks, rendered_features.height, rendered_features.width)
+        # (batch_size, N_masks, rendered_features.height, rendered_features.width)
+        pp = torch.einsum('NC, CHWB -> NHWB', 
+                          feature_query.reshape(-1, dataset.feature_dim), rendered_features.permute([1, 2, 3, 0]))
+        prob = torch.sigmoid(pp) 
         if full_resolution_sam_masks.shape[-2:] != prob.shape[-2:]:
-            full_resolution_sam_masks = torch.nn.functional.interpolate(full_resolution_sam_masks.unsqueeze(0), size=prob.shape[-2:] , mode='bilinear').squeeze()
+            full_resolution_sam_masks = torch.nn.functional.interpolate(full_resolution_sam_masks, size=prob.shape[-2:] , mode='bilinear').squeeze()
             full_resolution_sam_masks[full_resolution_sam_masks <= 0.5] = 0
             full_resolution_sam_masks[full_resolution_sam_masks != 0] = 1
         bce_contrastive_loss = full_resolution_sam_masks * torch.log(prob + 1e-8) + (1 - full_resolution_sam_masks) * torch.log(1 - prob + 1e-8)
         bce_contrastive_loss = -bce_contrastive_loss.mean()
 
         rands = torch.rand(gaussians.get_sam_features.shape[0], device=prob.device)
-        reg_loss = torch.relu(torch.einsum('NC,KC->NK', gaussians.get_sam_features[rands > 0.9, :], feature_query)).mean()
+        reg_loss = torch.relu(torch.einsum('NC, BKC -> NBK', gaussians.get_sam_features[rands > 0.9, :], feature_query)).mean()
         loss = bce_contrastive_loss + 0.1 * reg_loss
 
         #! Correspondance Loss
-        NHW = sam_masks
-        N, H, W = NHW.shape
-        NL = NHW.view(N,-1)
-        intersection = torch.einsum('NL,NC->LC', NL, NL)
+        BNHW = sam_masks
+        B, N, H, W = BNHW.shape
+        NL = BNHW.permute([1, 0, 2, 3]).view(N, -1)
+        intersection = torch.einsum('NL, NC -> LC', NL, NL)
         union = NL.sum(dim = 0, keepdim = True) + NL.sum(dim = 0, keepdim = True).T - intersection
         similarity = intersection / (union + 1e-5)
-        HWHW = similarity.view(H,W,H,W)
-        HWHW[HWHW == 0] = -1
-        norm_rendered_feature = torch.nn.functional.normalize(torch.nn.functional.interpolate(rendered_features.unsqueeze(0), (H,W), mode = 'bilinear').squeeze(), dim=0, p=2)
-        correspondence = torch.relu(torch.einsum('CHW,CJK->HWJK', norm_rendered_feature, norm_rendered_feature))
-        corr_loss = -HWHW * correspondence
+        BHWBHW = similarity.view(B, H, W, B, H, W)
+        BHWBHW[BHWBHW == 0] = -1
+        norm_rendered_feature = torch.nn.functional.normalize(torch.nn.functional.interpolate(rendered_features, (H, W), mode='bilinear'), dim=1, p=2)
+        correspondence = torch.relu(torch.einsum('ACHW, BCJK -> AHWBJK', norm_rendered_feature, norm_rendered_feature))
+        corr_loss = -BHWBHW * correspondence
         loss += corr_loss.mean()
         
         loss.backward()

@@ -121,7 +121,7 @@ class OptimizationParams(ParamGroup):
         self.zerostamp_init=False
         self.custom_sampler=None
         self.iterations = 30_000
-        self.feature_iterations = 15_000
+        self.feature_iterations = 10_000
         self.coarse_iterations = 3000
         self.position_lr_init = 0.00016
         self.position_lr_final = 0.0000016

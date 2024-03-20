@@ -80,7 +80,7 @@ def write_ply_with_color(save_path, points, colors, text=True):
     el = PlyElement.describe(vertex, 'vertex', comments=['vertices'])
     PlyData([el], text=text).write(save_path)
     
-def postprocess_statistical_filtering(pcd, precomputed_mask = None, max_time = 5):
+def postprocess_statistical_filtering(pcd, precomputed_mask = None, max_time = 10):
     
     if type(pcd) == np.ndarray:
         pcd = torch.from_numpy(pcd).cuda()
@@ -92,14 +92,14 @@ def postprocess_statistical_filtering(pcd, precomputed_mask = None, max_time = 5
 
     std_nearest_k_distance = 10
     
-    while std_nearest_k_distance > 0.1: # and max_time > 0:
+    while std_nearest_k_distance > 0.1 and max_time > 0:
         nearest_k_distance = pytorch3d.ops.knn_points(
             pcd.unsqueeze(0),
             pcd.unsqueeze(0),
             K=int(num_points**0.5),
         ).dists
         mean_nearest_k_distance, std_nearest_k_distance = nearest_k_distance.mean(), nearest_k_distance.std()
-        print(std_nearest_k_distance, "std_nearest_k_distance")
+        # print(std_nearest_k_distance, "std_nearest_k_distance")
 
         mask = nearest_k_distance.mean(dim = -1) < mean_nearest_k_distance + std_nearest_k_distance
 
@@ -108,7 +108,7 @@ def postprocess_statistical_filtering(pcd, precomputed_mask = None, max_time = 5
         pcd = pcd[mask,:]
         if precomputed_mask is not None:
             precomputed_mask[precomputed_mask != 0] = mask
-        # max_time -= 1
+        max_time -= 1
         # num_points = pcd.shape[0]
     
     test_nearest_k_distance = pytorch3d.ops.knn_points(

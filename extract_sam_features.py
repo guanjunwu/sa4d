@@ -9,7 +9,7 @@ import numpy as np
 from segment_anything import (SamAutomaticMaskGenerator, SamPredictor,
                               sam_model_registry)
 import json
-
+import glob
 
 if __name__ == '__main__':
     
@@ -90,4 +90,28 @@ if __name__ == '__main__':
             features = predictor.features
             # print(features.shape)
             # break
-            torch.save(features, os.path.join(OUTPUT_DIR, name+'.pt'))    
+            torch.save(features, os.path.join(OUTPUT_DIR, name+'.pt'))  
+    
+    elif "dynerf" in args.image_root:
+        videos = glob.glob(os.path.join(args.image_root, "cam*.mp4"))
+        videos = sorted(videos)
+        eval_index =0
+        for index, video_path in enumerate(videos):
+            if index == eval_index:
+                continue
+            
+            camera_path = video_path.split('.')[0]
+            print(camera_path)
+            image_path = os.path.join(camera_path, "images")
+            OUTPUT_DIR = os.path.join(camera_path, 'sam_features')
+            os.makedirs(OUTPUT_DIR, exist_ok=True)
+            
+            images_path = os.listdir(image_path)
+            images_path.sort()
+            for path in tqdm(images_path):
+                name = path.split('.')[0]
+                img = cv2.imread(os.path.join(image_path, path))
+                img = cv2.resize(img, dsize=(1024,1024), fx=1, fy=1, interpolation=cv2.INTER_LINEAR)
+                predictor.set_image(img)
+                features = predictor.features
+                torch.save(features, os.path.join(OUTPUT_DIR, name+'.pt'))  

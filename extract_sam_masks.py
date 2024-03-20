@@ -1,5 +1,5 @@
 import os, sys
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 from PIL import Image
 import cv2
 import torch
@@ -10,7 +10,7 @@ from segment_anything import (SamAutomaticMaskGenerator, SamPredictor,
                               sam_model_registry)
 import json
 import concurrent.futures
-
+import glob
 
 def multithread_write(masks_list, name_list, outdir):
     assert len(masks_list) == len(name_list)
@@ -187,3 +187,39 @@ if __name__ == '__main__':
             torch.save(masks, os.path.join(OUTPUT_DIR, name+'.pt'))
 
         # multithread_write(masks_list, name_list, OUTPUT_DIR)
+        
+    elif "dynerf" in args.image_root:
+        videos = glob.glob(os.path.join(args.image_root, "cam*.mp4"))
+        videos = sorted(videos)
+        eval_index =0
+        for index, video_path in enumerate(videos):
+            if index == eval_index:
+                continue
+            
+            camera_path = video_path.split('.')[0]
+            print(camera_path)
+            image_path = os.path.join(camera_path, "images")
+            OUTPUT_DIR = os.path.join(camera_path, 'sam_masks')
+            if os.path.exists(OUTPUT_DIR):
+                continue
+            os.makedirs(OUTPUT_DIR, exist_ok=True)
+            
+            images_path = os.listdir(image_path)
+            images_path.sort()
+            for path in tqdm(images_path):
+                name = path.split('.')[0]
+                img = cv2.imread(os.path.join(image_path, path))
+                masks = mask_generator.generate(img)
+                
+                temp_list = []
+                for m in masks:
+                    # m_score = torch.from_numpy(m['segmentation']).float()
+                    m_score = torch.from_numpy(m['segmentation']).float()[None, None, :, :].to('cuda')
+                    # m_score = torch.nn.functional.interpolate(m_score, scale_factor=1/args.downsample, mode='bilinear').squeeze()
+                    m_score = torch.nn.functional.interpolate(m_score, size=(200,200), mode='bilinear', align_corners=False).squeeze()
+                    m_score[m_score >= 0.5] = 1
+                    m_score[m_score != 1] = 0
+                    temp_list.append(m_score)
+                masks = torch.stack(temp_list, dim=0)
+                
+                torch.save(masks, os.path.join(OUTPUT_DIR, name+'.pt'))

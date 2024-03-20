@@ -23,7 +23,7 @@ class FourDGSdataset(Dataset):
         # breakpoint()
         if self.dataset_type != "PanopticSports":
             try:
-                image, w2c, time = self.dataset[index]
+                image, w2c, time, sam_features, sam_masks = self.dataset[index]
                 R,T = w2c
                 FovX = focal2fov(self.dataset.focal[0], image.shape[2])
                 FovY = focal2fov(self.dataset.focal[0], image.shape[1])

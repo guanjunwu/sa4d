@@ -2,7 +2,7 @@ import concurrent.futures
 import gc
 import glob
 import os
-
+import sys
 import cv2
 import numpy as np
 import torch
@@ -224,7 +224,12 @@ class Neural3D_NDC_Dataset(Dataset):
         eval_step=1,
         eval_index=0,
         sphere_scale=1.0,
+        need_features=False,
+        need_masks=False
     ):
+        self.need_features = need_features
+        self.need_masks = need_masks
+        
         self.img_wh = (
             int(1352 / downsample),
             int(1014 / downsample),
@@ -262,7 +267,7 @@ class Neural3D_NDC_Dataset(Dataset):
         poses_arr = np.load(os.path.join(self.root_dir, "poses_bounds.npy"))
         poses = poses_arr[:, :-2].reshape([-1, 3, 5])  # (N_cams, 3, 5)
         self.near_fars = poses_arr[:, -2:]
-        videos = glob.glob(os.path.join(self.root_dir, "cam*"))
+        videos = glob.glob(os.path.join(self.root_dir, "cam*.mp4"))
         videos = sorted(videos)
         # breakpoint()
         assert len(videos) == poses_arr.shape[0]
@@ -294,22 +299,25 @@ class Neural3D_NDC_Dataset(Dataset):
                 poses_i_train.append(i)
         self.poses = poses[poses_i_train]
         self.poses_all = poses
-        self.image_paths, self.image_poses, self.image_times, N_cam, N_time = self.load_images_path(videos, self.split)
+        self.image_paths, self.image_poses, self.image_times, N_cam, N_time, self.sam_features_paths, self.sam_masks_paths = self.load_images_path(videos, self.split)
         self.cam_number = N_cam
         self.time_number = N_time
+        
     def get_val_pose(self):
         render_poses = self.val_poses
         render_times = torch.linspace(0.0, 1.0, render_poses.shape[0]) * 2.0 - 1.0
         return render_poses, self.time_scale * render_times
+    
     def load_images_path(self,videos,split):
         image_paths = []
         image_poses = []
         image_times = []
+        sam_features_paths = [] if self.need_features else None
+        sam_masks_paths = [] if self.need_masks else None
         N_cams = 0
         N_time = 0
         countss = 300
         for index, video_path in enumerate(videos):
-            
             if index == self.eval_index:
                 if split =="train":
                     continue
@@ -341,13 +349,19 @@ class Neural3D_NDC_Dataset(Dataset):
                         this_count+=1
                     else:
                         break
-                    
+            
+            feature_folder = os.path.join(video_path.split('.')[0], "sam_features") if self.need_features else None
+            mask_folder = os.path.join(video_path.split('.')[0], "sam_masks") if self.need_features else None
             images_path = os.listdir(image_path)
             images_path.sort()
             this_count = 0
             for idx, path in enumerate(images_path):
                 if this_count >=countss:break
-                image_paths.append(os.path.join(image_path,path))
+                image_paths.append(os.path.join(image_path, path))
+                if feature_folder is not None:
+                    sam_features_paths.append(os.path.join(feature_folder, path.split('.')[0]+'.pt'))
+                if mask_folder is not None:
+                    sam_masks_paths.append(os.path.join(mask_folder, path.split('.')[0]+'.pt')) 
                 pose = np.array(self.poses_all[index])
                 R = pose[:3,:3]
                 R = -R
@@ -363,15 +377,19 @@ class Neural3D_NDC_Dataset(Dataset):
 
                 #     video_data_save[count] = img.permute(1,2,0)
                 #     count += 1
-        return image_paths, image_poses, image_times, N_cams, N_time
+        return image_paths, image_poses, image_times, N_cams, N_time, sam_features_paths, sam_masks_paths
+    
     def __len__(self):
         return len(self.image_paths)
+    
     def __getitem__(self,index):
         img = Image.open(self.image_paths[index])
         img = img.resize(self.img_wh, Image.LANCZOS)
-
         img = self.transform(img)
-        return img, self.image_poses[index], self.image_times[index]
+        sam_features = torch.load(self.sam_features_paths[index], map_location="cpu") if self.need_features else None
+        sam_masks = torch.load(self.sam_masks_paths[index], map_location="cpu") if self.need_masks else None
+        return img, self.image_poses[index], self.image_times[index], sam_features, sam_masks
+    
     def load_pose(self,index):
         return self.image_poses[index]
 

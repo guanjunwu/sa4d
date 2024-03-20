@@ -4,5 +4,19 @@ python train_4dgs.py -s ./data/hypernerf/split-cookie/ --port 6017 --expname "hy
 python render.py --model_path "output/hypernerf/split-cookie/" --skip_train --configs arguments/hypernerf/default.py
 python train_features.py -s ./data/hypernerf/split-cookie/ -m ./output/hypernerf/split-cookie/ --configs arguments/hypernerf/default.py
 
+# chickchicken
+python train_4dgs.py -s ./data/hypernerf/chickchicken/ --port 6017 --expname "hypernerf/chickchicken" --configs arguments/hypernerf/chicken.py
+python render.py --model_path "output/hypernerf/chickchicken/" --skip_train --configs arguments/hypernerf/chicken.py
+python train_features.py -s ./data/hypernerf/chickchicken/ -m ./output/hypernerf/chickchicken/ --configs arguments/hypernerf/chicken.py
+
 # banana
 python train_4dgs.py -s ./data/hypernerf/split-cookie/ --port 6017 --expname "hypernerf/split-cookie" --configs arguments/hypernerf/default.py
+
+# dynerf
+# cut_roasted_beef
+python ./scripts/preprocess_dynerf.py --datadir data/dynerf/cut_roasted_beef
+bash colmap.sh data/dynerf/cut_roasted_beef llff
+python scripts/downsample_point.py data/dynerf/cut_roasted_beef/colmap/dense/workspace/fused.ply data/dynerf/cut_roasted_beef/points3D_downsample2.ply
+python train_4dgs.py -s data/dynerf/cut_roasted_beef --port 6017 --expname "dynerf/cut_roasted_beef" --configs arguments/dynerf/cut_roasted_beef.py
+python render.py --model_path "output/dynerf/cut_roasted_beef/"  --skip_train --configs arguments/dynerf/cut_roasted_beef.py
+python train_features.py -s ./data/dynerf/cut_roasted_beef/ -m ./output/dynerf/cut_roasted_beef/ --configs arguments/dynerf/cut_roasted_beef.py

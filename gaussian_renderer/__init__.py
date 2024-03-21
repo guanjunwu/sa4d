@@ -188,7 +188,6 @@ def render_segmentation(viewpoint_camera, pc : GaussianModel, pipe, bg_color : t
     # means3D = pc.get_xyz
     # add deformation to each points
     # deformation = pc.get_deformation
-
     
     means2D = screenspace_points
     opacity = pc._opacity[mask]

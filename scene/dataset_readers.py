@@ -382,10 +382,9 @@ def format_infos(dataset,split):
             FovY = focal2fov(dataset.focal[0], image.shape[2])
             cameras.append(CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
                                 image_path=image_path, image_name=image_name, width=image.shape[2], height=image.shape[1],
-                                time = time, mask=None, sam_features=None, sam_masks=None))
+                                time = time, mask=None, sam_features=None, sam_masks=None, gt_mask=None))
 
     return cameras
-
 
 def readHyperDataInfos(datadir, use_bg_points, eval, need_features=False, need_masks=False):
     train_cam_infos = Load_hyper_data(datadir, 0.5, use_bg_points, split ="train", need_features=need_features, need_masks=need_masks, sam_mask_downsample=4.0)
@@ -437,7 +436,7 @@ def format_render_poses(poses,data_infos):
         FovY = focal2fov(data_infos.focal[0], image.shape[1])
         cameras.append(CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
                             image_path=image_path, image_name=image_name, width=image.shape[2], height=image.shape[1],
-                            time = time, mask=None, sam_features=None, sam_masks=None))
+                            time = time, mask=None, sam_features=None, sam_masks=None, gt_mask=None))
     return cameras
 
 def add_points(pointsclouds, xyz_min, xyz_max):

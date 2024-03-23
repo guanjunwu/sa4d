@@ -10,6 +10,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import transforms as T
 from tqdm import tqdm
+from utils.general_utils import PILtoTorch
 
 
 def normalize(v):
@@ -299,7 +300,7 @@ class Neural3D_NDC_Dataset(Dataset):
                 poses_i_train.append(i)
         self.poses = poses[poses_i_train]
         self.poses_all = poses
-        self.image_paths, self.image_poses, self.image_times, N_cam, N_time, self.sam_features_paths, self.sam_masks_paths = self.load_images_path(videos, self.split)
+        self.image_paths, self.image_poses, self.image_times, N_cam, N_time, self.sam_features_paths, self.sam_masks_paths, self.gt_mask_paths = self.load_images_path(videos, self.split)
         self.cam_number = N_cam
         self.time_number = N_time
         
@@ -314,6 +315,7 @@ class Neural3D_NDC_Dataset(Dataset):
         image_times = []
         sam_features_paths = [] if self.need_features else None
         sam_masks_paths = [] if self.need_masks else None
+        gt_mask_paths = [] if self.split == "test" else None
         N_cams = 0
         N_time = 0
         countss = 300
@@ -352,6 +354,7 @@ class Neural3D_NDC_Dataset(Dataset):
             
             feature_folder = os.path.join(video_path.split('.')[0], "sam_features") if self.need_features else None
             mask_folder = os.path.join(video_path.split('.')[0], "sam_masks") if self.need_features else None
+            gt_mask_folder = os.path.join(video_path.split('.')[0], "gt_mask") if self.split == "test" else None
             images_path = os.listdir(image_path)
             images_path.sort()
             this_count = 0
@@ -361,7 +364,9 @@ class Neural3D_NDC_Dataset(Dataset):
                 if feature_folder is not None:
                     sam_features_paths.append(os.path.join(feature_folder, path.split('.')[0]+'.pt'))
                 if mask_folder is not None:
-                    sam_masks_paths.append(os.path.join(mask_folder, path.split('.')[0]+'.pt')) 
+                    sam_masks_paths.append(os.path.join(mask_folder, path.split('.')[0]+'.pt'))
+                if gt_mask_folder is not None:
+                    gt_mask_paths.append(os.path.join(gt_mask_folder, path.split('.')[0]+'.png'))
                 pose = np.array(self.poses_all[index])
                 R = pose[:3,:3]
                 R = -R
@@ -377,7 +382,7 @@ class Neural3D_NDC_Dataset(Dataset):
 
                 #     video_data_save[count] = img.permute(1,2,0)
                 #     count += 1
-        return image_paths, image_poses, image_times, N_cams, N_time, sam_features_paths, sam_masks_paths
+        return image_paths, image_poses, image_times, N_cams, N_time, sam_features_paths, sam_masks_paths, gt_mask_paths
     
     def __len__(self):
         return len(self.image_paths)
@@ -388,7 +393,8 @@ class Neural3D_NDC_Dataset(Dataset):
         img = self.transform(img)
         sam_features = torch.load(self.sam_features_paths[index], map_location="cpu") if self.need_features else None
         sam_masks = torch.load(self.sam_masks_paths[index], map_location="cpu") if self.need_masks else None
-        return img, self.image_poses[index], self.image_times[index], sam_features, sam_masks
+        gt_mask = PILtoTorch(Image.open(self.gt_mask_paths[index]), None) if self.gt_mask_paths is not None else None
+        return img, self.image_poses[index], self.image_times[index], sam_features, sam_masks, gt_mask
     
     def load_pose(self,index):
         return self.image_poses[index]

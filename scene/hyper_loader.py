@@ -27,6 +27,7 @@ class CameraInfo(NamedTuple):
     image: np.array
     sam_features: np.array
     sam_masks: np.array
+    gt_mask: np.array
     image_path: str
     image_name: str
     width: int
@@ -42,7 +43,7 @@ class Load_hyper_data(Dataset):
                 split="train",
                 need_features = False,
                 need_masks = False,
-                sam_mask_downsample = 4.0
+                sam_mask_downsample = None
                 ):
         self.features_folder = os.path.join(datadir, "sam_features", f"{int(1/ratio)}x") if need_features else None
         self.masks_folder = os.path.join(datadir, "sam_masks", f"{int(1/ratio)}x") if need_masks else None
@@ -97,7 +98,10 @@ class Load_hyper_data(Dataset):
             self.all_cam_params.append(camera)
         self.all_img_origin = self.all_img
         self.all_depth = [f'{datadir}/depth/{int(1/ratio)}x/{i}.npy' for i in self.all_img]
-
+        
+        if self.split == "test":
+            self.all_gt_mask = [f'{datadir}/gt_mask/{int(1/ratio)}x/{i}.png' for i in self.all_img]
+            
         self.all_img = [f'{datadir}/rgb/{int(1/ratio)}x/{i}.png' for i in self.all_img]
 
         self.h, self.w = self.all_cam_params[0].image_shape
@@ -179,6 +183,12 @@ class Load_hyper_data(Dataset):
         image_name = self.all_img[idx].split("/")[-1]
         sam_features = torch.load(os.path.join(self.features_folder, image_name.split('.')[0] + ".pt"), map_location="cpu") if self.features_folder is not None else None
         sam_masks = torch.load(os.path.join(self.masks_folder, image_name.split('.')[0] + ".pt"), map_location="cpu") if self.masks_folder is not None else None
+        if self.split == "test":
+            gt_mask = Image.open(self.all_gt_mask[idx])
+            gt_mask = PILtoTorch(gt_mask, None)
+        else:
+            gt_mask = None
+            
         if sam_masks is not None:
             sam_masks = torch.nn.functional.interpolate(sam_masks[None, ...], scale_factor=1/self.sam_mask_downsample, mode='bilinear').squeeze()
             sam_masks[sam_masks >= 0.5] = 1
@@ -195,7 +205,7 @@ class Load_hyper_data(Dataset):
 
         
         caminfo = CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                             sam_features=sam_features, sam_masks=sam_masks,
+                             sam_features=sam_features, sam_masks=sam_masks, gt_mask=gt_mask,
                               image_path=image_path, image_name=image_name, width=w, height=h, time=time, mask=mask
                               )
         self.map[idx] = caminfo
@@ -232,7 +242,7 @@ def format_hyper_data(data_class, split):
         else:
             mask = None
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=None,
-                              sam_features=None, sam_masks=None,
+                              sam_features=None, sam_masks=None, gt_mask=None,
                               image_path=image_path, image_name=image_name, width=int(data_class.w), 
                               height=int(data_class.h), time=time, mask=mask
                               )

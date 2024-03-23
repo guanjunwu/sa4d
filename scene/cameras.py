@@ -16,7 +16,7 @@ from utils.graphics_utils import getWorld2View2, getProjectionMatrix
 
 class Camera(nn.Module):
     def __init__(self, colmap_id, R, T, FoVx, FoVy, image, gt_alpha_mask,
-                 image_name, uid, sam_features = None, sam_masks = None,
+                 image_name, uid, sam_features = None, sam_masks = None, gt_mask=None,
                  trans=np.array([0.0, 0.0, 0.0]), scale=1.0, data_device = "cuda", time = 0,
                  mask = None, depth=None, sam_masks_downsample=4.0
                  ):
@@ -42,6 +42,7 @@ class Camera(nn.Module):
         self.image_width = self.original_image.shape[2]
         self.image_height = self.original_image.shape[1]
         
+        self.gt_mask = gt_mask
         self.original_sam_features = sam_features
         self.original_sam_masks = sam_masks
         # self.feature_width = int(self.image_width / sam_masks_downsample)

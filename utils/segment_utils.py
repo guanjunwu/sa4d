@@ -80,7 +80,7 @@ def write_ply_with_color(save_path, points, colors, text=True):
     el = PlyElement.describe(vertex, 'vertex', comments=['vertices'])
     PlyData([el], text=text).write(save_path)
     
-def postprocess_statistical_filtering(pcd, precomputed_mask = None, max_time = 10):
+def postprocess_statistical_filtering(pcd, precomputed_mask = None, max_time = 5):
     
     if type(pcd) == np.ndarray:
         pcd = torch.from_numpy(pcd).cuda()
@@ -91,17 +91,22 @@ def postprocess_statistical_filtering(pcd, precomputed_mask = None, max_time = 1
     # (N, P1, K)
 
     std_nearest_k_distance = 10
+    std = 10
     
-    while std_nearest_k_distance > 0.1 and max_time > 0:
+    while std > 0.1 and max_time > 0:
         nearest_k_distance = pytorch3d.ops.knn_points(
             pcd.unsqueeze(0),
             pcd.unsqueeze(0),
             K=int(num_points**0.5),
         ).dists
-        mean_nearest_k_distance, std_nearest_k_distance = nearest_k_distance.mean(), nearest_k_distance.std()
+        # print(nearest_k_distance.shape)
+        mean_nearest_k_distance = nearest_k_distance.mean(dim = -1)
+        mean, std = mean_nearest_k_distance.mean(), mean_nearest_k_distance.std()
+        # mean_nearest_k_distance, std_nearest_k_distance = nearest_k_distance.mean(), nearest_k_distance.std()
         # print(std_nearest_k_distance, "std_nearest_k_distance")
-
-        mask = nearest_k_distance.mean(dim = -1) < mean_nearest_k_distance + std_nearest_k_distance
+        # print(std, "std_nearest_k_distance")
+        mask = mean_nearest_k_distance < mean + std
+        # mask = nearest_k_distance.mean(dim = -1) < mean_nearest_k_distance + std_nearest_k_distance
 
         mask = mask.squeeze()
 
@@ -109,7 +114,6 @@ def postprocess_statistical_filtering(pcd, precomputed_mask = None, max_time = 1
         if precomputed_mask is not None:
             precomputed_mask[precomputed_mask != 0] = mask
         max_time -= 1
-        # num_points = pcd.shape[0]
     
     test_nearest_k_distance = pytorch3d.ops.knn_points(
         pcd.unsqueeze(0),

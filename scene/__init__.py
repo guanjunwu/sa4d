@@ -87,27 +87,28 @@ class Scene:
         if mode == "scene" and args.add_points:
             print("add points.")
             scene_info = scene_info._replace(point_cloud=add_points(scene_info.point_cloud, xyz_max=xyz_max, xyz_min=xyz_min))
-            
-        self.gaussians._deformation.deformation_net.set_aabb(xyz_max,xyz_min)
         
-        # Load or initialize scene 4dgaussians
-        if self.loaded_iter:
-            if mode == "scene":
-                self.gaussians.load_ply(os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter), "scene_point_cloud.ply"))
-            elif mode == "feature":
-                self.gaussians.load_ply(os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter), "feature_point_cloud.ply"))
-                self.gaussians.load_mlp(os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter)))
-                
-            self.gaussians.load_model(os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter)))
-        else:
-            if mode == "scene":
-                self.gaussians.create_from_pcd(scene_info.point_cloud, self.cameras_extent, self.maxtime)
-            elif mode == "feature":
-                self.loaded_iter = searchForMaxIteration(os.path.join(self.model_path, "point_cloud"))
-                self.gaussians.create_from_4dgs(os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter), "scene_point_cloud.ply"))
+        if self.gaussians is not None:
+            self.gaussians._deformation.deformation_net.set_aabb(xyz_max,xyz_min)
+            
+            # Load or initialize scene 4dgaussians
+            if self.loaded_iter:
+                if mode == "scene":
+                    self.gaussians.load_ply(os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter), "scene_point_cloud.ply"))
+                elif mode == "feature":
+                    self.gaussians.load_ply(os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter), "feature_point_cloud.ply"))
+                    self.gaussians.load_mlp(os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter)))
+                    
                 self.gaussians.load_model(os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter)))
-            # else:
-            #     raise NotImplementedError("Could not train feature gaussians without a pretrained 4DGS!")
+            else:
+                if mode == "scene":
+                    self.gaussians.create_from_pcd(scene_info.point_cloud, self.cameras_extent, self.maxtime)
+                elif mode == "feature":
+                    self.loaded_iter = searchForMaxIteration(os.path.join(self.model_path, "point_cloud"))
+                    self.gaussians.create_from_4dgs(os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter), "scene_point_cloud.ply"))
+                    self.gaussians.load_model(os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter)))
+                # else:
+                #     raise NotImplementedError("Could not train feature gaussians without a pretrained 4DGS!")
                             
     def save(self, iteration, stage=None):
         if self.mode == "scene":

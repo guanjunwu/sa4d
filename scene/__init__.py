@@ -61,7 +61,7 @@ class Scene:
             scene_info = sceneLoadTypeCallbacks["dynerf"](args.source_path, args.white_background, args.eval, need_features = args.need_features, need_masks = args.need_masks)
             dataset_type="dynerf"
         elif os.path.exists(os.path.join(args.source_path,"dataset.json")):
-            scene_info = sceneLoadTypeCallbacks["nerfies"](args.source_path, False, args.eval, need_features = args.need_features, need_masks = args.need_masks)
+            scene_info = sceneLoadTypeCallbacks["nerfies"](args.source_path, False, args.eval, need_features=args.need_features, need_masks=args.need_masks, need_gt_masks=args.need_gt_masks)
             dataset_type="nerfies"
         elif os.path.exists(os.path.join(args.source_path,"train_meta.json")):
             scene_info = sceneLoadTypeCallbacks["PanopticSports"](args.source_path)
@@ -98,6 +98,7 @@ class Scene:
                 elif mode == "feature":
                     self.gaussians.load_ply(os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter), "feature_point_cloud.ply"))
                     self.gaussians.load_mlp(os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter)))
+                    # self.gaussians.load_decoder(os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter)))
                     
                 self.gaussians.load_model(os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter)))
             else:
@@ -124,6 +125,7 @@ class Scene:
             point_cloud_path = os.path.join(self.model_path, "point_cloud/iteration_{}".format(iteration))
             self.gaussians.save_ply(os.path.join(point_cloud_path, "feature_point_cloud.ply"))
             self.gaussians.save_mlp(os.path.join(point_cloud_path))
+            # self.gaussians.save_decoder(os.path.join(point_cloud_path))
                     
     def getTrainCameras(self, scale=1.0):
         return self.train_camera

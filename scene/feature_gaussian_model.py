@@ -73,15 +73,16 @@ class GaussianModel:
             self.sam_feature_dim = feature_dim
             self._sam_features = torch.empty(0)
             self._mask = torch.empty(0)
-            self._sam_proj = torch.nn.Sequential(
-                torch.nn.Linear(256, 64, bias=True),
-                torch.nn.LayerNorm(64),
-                torch.nn.LeakyReLU(),
-                torch.nn.Linear(64, 64, bias=True),
-                torch.nn.LayerNorm(64),
-                torch.nn.LeakyReLU(),
-                torch.nn.Linear(64, feature_dim, bias=True)
-            ).cuda()
+            # self._sam_proj = torch.nn.Sequential(
+            #     torch.nn.Linear(256, 64, bias=True),
+            #     torch.nn.LayerNorm(64),
+            #     torch.nn.LeakyReLU(),
+            #     torch.nn.Linear(64, 64, bias=True),
+            #     torch.nn.LayerNorm(64),
+            #     torch.nn.LeakyReLU(),
+            #     torch.nn.Linear(64, feature_dim, bias=True)
+            # ).cuda()
+            self._mlp = torch.nn.Sequential(nn.Linear(feature_dim, 64, bias=True)).cuda()
             print("Feature Dimension: ", feature_dim)
 
     def capture(self):
@@ -123,7 +124,7 @@ class GaussianModel:
                 self.denom,
                 self.optimizer.state_dict(),
                 self.spatial_lr_scale,
-                self._sam_proj.state_dict()
+                self._mlp.state_dict()
             )
     
     def restore(self, model_args, training_args):
@@ -168,7 +169,7 @@ class GaussianModel:
                 sam_proj_state
             ) = model_args
             self.sam_feature_training_setup(training_args)
-            self._sam_proj.load_state_dict(sam_proj_state)
+            self._mlp.load_state_dict(sam_proj_state)
             
         self._deformation.load_state_dict(deform_state)
         self.xyz_gradient_accum = xyz_gradient_accum
@@ -270,8 +271,11 @@ class GaussianModel:
                                                         max_steps=training_args.position_lr_max_steps)  
         elif self.mode == "feature":
             self._sam_features.data = torch.randn_like(self._sam_features.data)
-            l = [{'params': [self._sam_features], 'lr': training_args.feature_lr, "name": "sam_features"},
-                 {'params': self._sam_proj.parameters(), 'lr': training_args.feature_lr, 'name': 'mlp'}]
+            l = [
+                {'params': [self._sam_features], 'lr': training_args.feature_lr, "name": "sam_features"},
+                # {'params': self._decoder.parameters(), 'lr': 1e-4, 'name': 'decoder'},
+                {'params': self._mlp.parameters(), 'lr': training_args.feature_lr, 'name': 'mlp'}
+                ]
             self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
             # self.xyz_scheduler_args = get_expon_lr_func(lr_init=training_args.position_lr_init*self.spatial_lr_scale,
             #                                         lr_final=training_args.position_lr_final*self.spatial_lr_scale,
@@ -336,8 +340,15 @@ class GaussianModel:
             
     def load_mlp(self, path):
         if self.mode == "feature":
-            self._sam_proj.load_state_dict(torch.load(os.path.join(path, "sam_proj.pt")))
-            self._sam_proj.cuda()
+            self._mlp.load_state_dict(torch.load(os.path.join(path, "mlp.pt")))
+            self._mlp.cuda()
+        else:
+            assert False
+            
+    def load_decoder(self, path):
+        if self.mode == "feature":
+            self._decoder.load_state_dict(torch.load(os.path.join(path, "decoder.pt")))
+            self._decoder.cuda()
         else:
             assert False
                     
@@ -347,7 +358,10 @@ class GaussianModel:
         torch.save(self._deformation_accum,os.path.join(path, "deformation_accum.pth"))
         
     def save_mlp(self, path):
-        torch.save(self._sam_proj.state_dict(), os.path.join(path, "sam_proj.pt"))
+        torch.save(self._mlp.state_dict(), os.path.join(path, "mlp.pt"))
+        
+    def save_decoder(self, path):
+        torch.save(self._decoder.state_dict(), os.path.join(path, "decoder.pt"))
         
     # def save_masked_ply(self, path, mask):
     #     mkdir_p(os.path.dirname(path))

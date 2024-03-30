@@ -65,6 +65,7 @@ class ModelParams(ParamGroup):
         self._feature_model_path = ""
         self.need_features = False
         self.need_masks = False
+        self.need_gt_masks = False
         
         super().__init__(parser, "Loading Parameters", sentinel)
 
@@ -121,7 +122,7 @@ class OptimizationParams(ParamGroup):
         self.zerostamp_init=False
         self.custom_sampler=None
         self.iterations = 30_000
-        self.feature_iterations = 10_000
+        self.feature_iterations = 5_000
         self.coarse_iterations = 3000
         self.position_lr_init = 0.00016
         self.position_lr_final = 0.0000016

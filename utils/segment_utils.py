@@ -203,17 +203,19 @@ def postprocess_grad_based_statistical_filtering(pcd, precomputed_mask, gaussian
     
 def postprocess_growing(original_pcd, point_colors, seed_pcd, seed_point_colors, thresh = 0.05, grow_iter = 1):
     # s_time = time.time()
-    min_x, min_y, min_z = seed_pcd[:,0].min(), seed_pcd[:,1].min(), seed_pcd[:,2].min()
-    max_x, max_y, max_z = seed_pcd[:,0].max(), seed_pcd[:,1].max(), seed_pcd[:,2].max()
+    # min_x, min_y, min_z = seed_pcd[:,0].min(), seed_pcd[:,1].min(), seed_pcd[:,2].min()
+    # max_x, max_y, max_z = seed_pcd[:,0].max(), seed_pcd[:,1].max(), seed_pcd[:,2].max()
 
-    lx, ly, lz = max_x - min_x, max_y - min_y, max_z - min_z
-    min_x, min_y, min_z = min_x - lx*0.05, min_y - ly*0.05, min_z - lz*0.05
-    max_x, max_y, max_z = max_x + lx*0.05, max_y + ly*0.05, max_z + lz*0.05
+    # lx, ly, lz = max_x - min_x, max_y - min_y, max_z - min_z
+    # min_x, min_y, min_z = min_x - lx*0.05, min_y - ly*0.05, min_z - lz*0.05
+    # max_x, max_y, max_z = max_x + lx*0.05, max_y + ly*0.05, max_z + lz*0.05
 
-    cutout_mask = (original_pcd[:,0] < max_x) * (original_pcd[:,1] < max_y) * (original_pcd[:,2] < max_z)
-    cutout_mask *= (original_pcd[:,0] > min_x) * (original_pcd[:,1] > min_y) * (original_pcd[:,2] > min_z)
+    # cutout_mask = (original_pcd[:,0] < max_x) * (original_pcd[:,1] < max_y) * (original_pcd[:,2] < max_z)
+    # cutout_mask *= (original_pcd[:,0] > min_x) * (original_pcd[:,1] > min_y) * (original_pcd[:,2] > min_z)
     
-    cutout_point_cloud = original_pcd[cutout_mask > 0]
+    # cutout_point_cloud = original_pcd[cutout_mask > 0]
+    cutout_point_cloud = original_pcd
+    cutout_mask = torch.ones(original_pcd.shape[0]).bool().cuda()
 
     for i in range(grow_iter):
         num_points_in_seed = seed_pcd.shape[0]

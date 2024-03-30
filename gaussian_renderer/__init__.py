@@ -101,10 +101,10 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     scales_final = pc.scaling_activation(scales_final)
     rotations_final = pc.rotation_activation(rotations_final)
     opacity = pc.opacity_activation(opacity_final)
-    if filtered_mask is not None:
-        new_opacity = opacity.detach().clone()
-        new_opacity[filtered_mask, :] = -1.
-        opacity = new_opacity
+    # if filtered_mask is not None:
+    #     new_opacity = opacity.detach().clone()
+    #     new_opacity[filtered_mask, :] = -1.
+    #     opacity = new_opacity
         
     # If precomputed colors are provided, use them. Otherwise, if it is desired to precompute colors
     # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
@@ -274,9 +274,9 @@ def render_mask(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Ten
         pass
 
     # Set up rasterization configuration
+    means3D = pc.get_xyz
     tanfovx = math.tan(viewpoint_camera.FoVx * 0.5)
     tanfovy = math.tan(viewpoint_camera.FoVy * 0.5)
-
     raster_settings = GaussianRasterizationSettings(
         image_height=int(viewpoint_camera.image_height),
         image_width=int(viewpoint_camera.image_width),
@@ -291,17 +291,13 @@ def render_mask(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Ten
         prefiltered=False,
         debug=pipe.debug
     )
-
-    # print("Render time checker: raster_settings", time.time() - start_time)
-    # start_time  = time.time()
-
+    time = torch.tensor(viewpoint_camera.time).to(means3D.device).repeat(means3D.shape[0],1)
 
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
 
-    means3D = pc.get_xyz
     means2D = screenspace_points
     opacity = pc.get_opacity
-
+    shs = pc.get_features
     mask = pc.get_mask if precomputed_mask is None else precomputed_mask
 
     # If precomputed 3d covariance is provided, use it. If not, then it will be computed from
@@ -312,20 +308,26 @@ def render_mask(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Ten
     if pipe.compute_cov3D_python:
         cov3D_precomp = pc.get_covariance(scaling_modifier)
     else:
-        scales = pc.get_scaling
-        rotations = pc.get_rotation
+        scales = pc._scaling
+        rotations = pc._rotation
 
-    # print("Render time checker: prepare vars", time.time() - start_time)
-
-
+    deformation_point = pc._deformation_table
+    means3D_final, scales_final, rotations_final, opacity_final, shs_final = pc._deformation(means3D, scales, 
+                                                                rotations, opacity, shs,
+                                                                time)
+    
+    scales_final = pc.scaling_activation(scales_final)
+    rotations_final = pc.rotation_activation(rotations_final)
+    opacity = pc.opacity_activation(opacity_final)
+    
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
     rendered_mask, radii = rasterizer.forward_mask(
-        means3D = means3D,
+        means3D = means3D_final,
         means2D = means2D,
         opacities = opacity,
         mask = mask,
-        scales = scales,
-        rotations = rotations,
+        scales = scales_final,
+        rotations = rotations_final,
         cov3D_precomp = cov3D_precomp)
     
     # print("Render time checker: main render", time.time() - start_time)

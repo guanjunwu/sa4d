@@ -39,6 +39,7 @@ class CameraInfo(NamedTuple):
     image: np.array
     sam_features: np.array
     sam_masks: np.array
+    gt_mask: np.array
     image_path: str
     image_name: str
     width: int
@@ -386,9 +387,9 @@ def format_infos(dataset,split):
 
     return cameras
 
-def readHyperDataInfos(datadir, use_bg_points, eval, need_features=False, need_masks=False):
-    train_cam_infos = Load_hyper_data(datadir, 0.5, use_bg_points, split ="train", need_features=need_features, need_masks=need_masks, sam_mask_downsample=4.0)
-    test_cam_infos = Load_hyper_data(datadir, 0.5, use_bg_points, split="test")
+def readHyperDataInfos(datadir, use_bg_points, eval, need_features=False, need_masks=False, need_gt_masks=False):
+    train_cam_infos = Load_hyper_data(datadir, 0.5, use_bg_points, split ="train", need_features=need_features)
+    test_cam_infos = Load_hyper_data(datadir, 0.5, use_bg_points, split="test", need_gt_masks=need_gt_masks)
     print("load finished")
     train_cam = format_hyper_data(train_cam_infos, "train")
     print("format finished")

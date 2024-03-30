@@ -354,7 +354,7 @@ class Neural3D_NDC_Dataset(Dataset):
             
             feature_folder = os.path.join(video_path.split('.')[0], "sam_features") if self.need_features else None
             mask_folder = os.path.join(video_path.split('.')[0], "sam_masks") if self.need_features else None
-            gt_mask_folder = os.path.join(video_path.split('.')[0], "gt_mask") if self.split == "test" else None
+            gt_mask_folder = os.path.join(video_path.split('.')[0], "gt_mask", "man") if self.split == "test" else None
             images_path = os.listdir(image_path)
             images_path.sort()
             this_count = 0

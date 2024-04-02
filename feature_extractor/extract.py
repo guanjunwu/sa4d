@@ -25,7 +25,7 @@ def parse_args():
     parser.add_argument("--model", type=str, default="dino")
     parser.add_argument("--model_path", type=str, default="ckpts/dino_vitbase8_pretrain.pth")
     parser.add_argument("--imsize", default=(536, 960), nargs="+", type=int)
-    parser.add_argument("--dir_images", default='data/split-cookie/rgb/2x', type=str)
+    parser.add_argument("--dir_images", default='./chickchicken/rgb/2x', type=str)
     parser.add_argument("--dir_dst", type=str, default="data/dino")
     parser.add_argument("-f", default=0)
     args = parser.parse_args()

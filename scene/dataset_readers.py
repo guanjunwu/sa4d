@@ -37,8 +37,7 @@ class CameraInfo(NamedTuple):
     FovY: np.array
     FovX: np.array
     image: np.array
-    sam_features: np.array
-    sam_masks: np.array
+    dino_feature: np.array
     gt_mask: np.array
     image_path: str
     image_name: str
@@ -383,7 +382,7 @@ def format_infos(dataset,split):
             FovY = focal2fov(dataset.focal[0], image.shape[2])
             cameras.append(CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
                                 image_path=image_path, image_name=image_name, width=image.shape[2], height=image.shape[1],
-                                time = time, mask=None, sam_features=None, sam_masks=None, gt_mask=None))
+                                time = time, mask=None, dino_feature=None, gt_mask=None))
 
     return cameras
 
@@ -437,7 +436,7 @@ def format_render_poses(poses,data_infos):
         FovY = focal2fov(data_infos.focal[0], image.shape[1])
         cameras.append(CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
                             image_path=image_path, image_name=image_name, width=image.shape[2], height=image.shape[1],
-                            time = time, mask=None, sam_features=None, sam_masks=None, gt_mask=None))
+                            time = time, mask=None, dino_feature=None, gt_mask=None))
     return cameras
 
 def add_points(pointsclouds, xyz_min, xyz_max):
@@ -456,14 +455,14 @@ def add_points(pointsclouds, xyz_min, xyz_max):
     # breakpoint()
     # new_
     
-def readdynerfInfo(datadir, use_bg_points, eval, need_features=False, need_masks=False):
+def readdynerfInfo(datadir, use_bg_points, eval, need_features=False, need_masks=False, mode="scene"):
     # loading all the data follow hexplane format
     # ply_path = os.path.join(datadir, "points3D_dense.ply")
     ply_path = os.path.join(datadir, "points3D_downsample2.ply")
     from scene.neural_3D_dataset_NDC import Neural3D_NDC_Dataset
     train_dataset = Neural3D_NDC_Dataset(datadir, "train", 1.0, time_scale=1, 
                                          scene_bbox_min=[-2.5, -2.0, -1.0], scene_bbox_max=[2.5, 2.0, 1.0], eval_index=0,
-                                         need_features=need_features, need_masks=need_masks)    
+                                         need_features=need_features, mode=mode)    
     test_dataset = Neural3D_NDC_Dataset(datadir, "test", 1.0, time_scale=1, 
                                         scene_bbox_min=[-2.5, -2.0, -1.0], scene_bbox_max=[2.5, 2.0, 1.0], eval_index=0)
     print("load finished. Train Dataset Length:", len(train_dataset))

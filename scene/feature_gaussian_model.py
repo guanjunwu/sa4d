@@ -168,7 +168,7 @@ class GaussianModel:
                 self.spatial_lr_scale,
                 sam_proj_state
             ) = model_args
-            self.sam_feature_training_setup(training_args)
+            self.training_setup(training_args)
             self._mlp.load_state_dict(sam_proj_state)
             
         self._deformation.load_state_dict(deform_state)

@@ -79,167 +79,251 @@ def write_ply_with_color(save_path, points, colors, text=True):
     vertex = np.array(points, dtype=dtype_full)
     el = PlyElement.describe(vertex, 'vertex', comments=['vertices'])
     PlyData([el], text=text).write(save_path)
-    
-def postprocess_statistical_filtering(pcd, precomputed_mask = None, max_time = 5):
-    
-    if type(pcd) == np.ndarray:
-        pcd = torch.from_numpy(pcd).cuda()
-    else:
-        pcd = pcd.cuda()
 
-    num_points = pcd.shape[0]
-    # (N, P1, K)
-
-    std_nearest_k_distance = 10
-    std = 10
-    
-    while std > 0.1 and max_time > 0:
-        nearest_k_distance = pytorch3d.ops.knn_points(
-            pcd.unsqueeze(0),
-            pcd.unsqueeze(0),
-            K=int(num_points**0.5),
-        ).dists
-        # print(nearest_k_distance.shape)
-        mean_nearest_k_distance = nearest_k_distance.mean(dim = -1)
-        mean, std = mean_nearest_k_distance.mean(), mean_nearest_k_distance.std()
-        # mean_nearest_k_distance, std_nearest_k_distance = nearest_k_distance.mean(), nearest_k_distance.std()
-        # print(std_nearest_k_distance, "std_nearest_k_distance")
-        # print(std, "std_nearest_k_distance")
-        mask = mean_nearest_k_distance < mean + std
-        # mask = nearest_k_distance.mean(dim = -1) < mean_nearest_k_distance + std_nearest_k_distance
-
-        mask = mask.squeeze()
-
-        pcd = pcd[mask,:]
-        if precomputed_mask is not None:
-            precomputed_mask[precomputed_mask != 0] = mask
-        max_time -= 1
-    
-    test_nearest_k_distance = pytorch3d.ops.knn_points(
-        pcd.unsqueeze(0),
-        pcd.unsqueeze(0),
-        K=2,
-    ).dists
-    # mean_nearest_k_distance, std_nearest_k_distance = test_nearest_k_distance[:,:,1:].mean(), test_nearest_k_distance[:,:,1:].std()
-    test_threshold = torch.max(test_nearest_k_distance)
-    
-    return pcd.squeeze(), test_threshold, precomputed_mask
-    
-def postprocess_grad_based_statistical_filtering(pcd, precomputed_mask, gaussians, view, sam_mask, pipeline_args, bg_color):
-    # start_time = time.time()
-    
-    # background = torch.zeros(gaussians.get_opacity.shape[0], 3, device = 'cuda')
-
-    # project 2D mask onto the segmented Gaussians
-    grad_catch_mask = torch.zeros(gaussians.get_opacity.shape[0], 1, device = 'cuda')
-    grad_catch_mask[precomputed_mask, :] = 1
-    grad_catch_mask.requires_grad = True
-
-    grad_catch_2dmask = render(
-        view, 
-        gaussians, 
-        pipeline_args, 
-        bg_color,
-        filtered_mask=~precomputed_mask, 
-        override_color=None, #torch.zeros(gaussians.get_opacity.shape[0], 3, device = 'cuda'),
-        override_mask=grad_catch_mask,
-        )['mask']
-
-    target_mask = torch.tensor(sam_mask, device=grad_catch_2dmask.device)
-    target_mask = torch.nn.functional.interpolate(target_mask.unsqueeze(0).unsqueeze(0).float(), size=grad_catch_2dmask.shape[-2:] , mode='bilinear').squeeze(0).repeat([3,1,1])
-    target_mask[target_mask > 0.5] = 1
-    target_mask[target_mask != 1] = 0
-
-    loss = -(target_mask * grad_catch_2dmask).sum() + 10 * ((1-target_mask)* grad_catch_2dmask).sum()
-    loss.backward()
-
-    grad_score = grad_catch_mask.grad[precomputed_mask != 0].clone().squeeze()
-    grad_score = -grad_score
-    
-    pos_grad_score = grad_score.clone()
-    pos_grad_score[pos_grad_score <= 0] = 0
-    pos_grad_score[pos_grad_score <= pos_grad_score.mean() + pos_grad_score.std()] = 0
-    pos_grad_score[pos_grad_score != 0] = 1
-
-    confirmed_mask = pos_grad_score.bool()
-
-    if type(pcd) == np.ndarray:
-        pcd = torch.from_numpy(pcd).cuda()
-    else:
-        pcd = pcd.cuda()
-
-    confirmed_point = pcd[confirmed_mask == 1]
-
-    confirmed_point, _, _ = postprocess_statistical_filtering(confirmed_point, max_time=5)
+#! DINO
+def statistical_filtering(pcd, precomputed_mask, max_time = 1):
+    with torch.no_grad():
+        filtered_mask = precomputed_mask.clone()
+        filtered_pcd = pcd.clone()
         
-    test_nearest_k_distance = pytorch3d.ops.knn_points(
-        confirmed_point.unsqueeze(0),
-        confirmed_point.unsqueeze(0),
-        K=2,
-    ).dists
-    mean_nearest_k_distance, std_nearest_k_distance = test_nearest_k_distance[:,:,1:].mean(), test_nearest_k_distance[:,:,1:].std()
-    test_threshold = torch.max(test_nearest_k_distance)
-    # print("test threshold", test_threshold)
+        if type(filtered_pcd) == np.ndarray:
+            filtered_pcd = torch.from_numpy(filtered_pcd).cuda()
+        else:
+            filtered_pcd = filtered_pcd.cuda()
 
-    while True:
+        num_points = filtered_pcd.shape[0]
+        # (N, P1, K)
 
-        nearest_k_distance = pytorch3d.ops.knn_points(
-            pcd.unsqueeze(0),
-            confirmed_point.unsqueeze(0),
-            K=1,
-        ).dists
-        mask = nearest_k_distance.mean(dim = -1) <= test_threshold
-        mask = mask.squeeze()
-        true_mask = mask
-        if torch.abs(true_mask.count_nonzero() - confirmed_point.shape[0]) / confirmed_point.shape[0] < 0.001:
-            break
+        std = 10
+        
+        while std > 0.1 and max_time > 0:
+            nearest_k_distance = pytorch3d.ops.knn_points(
+                filtered_pcd.unsqueeze(0),
+                filtered_pcd.unsqueeze(0),
+                # K=int(num_points**0.5),
+                K=10
+            ).dists
+            # print(nearest_k_distance.shape)
+            mean_nearest_k_distance = nearest_k_distance.mean(dim = -1)
+            mean, std = mean_nearest_k_distance.mean(), mean_nearest_k_distance.std()
+            # mean_nearest_k_distance, std_nearest_k_distance = nearest_k_distance.mean(), nearest_k_distance.std()
+            # print(std_nearest_k_distance, "std_nearest_k_distance")
+            # print(std, "std_nearest_k_distance")
+            mask = mean_nearest_k_distance <= mean + std
+            # mask = nearest_k_distance.mean(dim = -1) < mean_nearest_k_distance + std_nearest_k_distance
 
-        confirmed_point = pcd[true_mask,:]
+            mask = mask.squeeze()
+            filtered_pcd = filtered_pcd[mask,:]
+            filtered_mask[filtered_mask != 0] = mask
+            max_time -= 1
+        
+    return filtered_pcd, filtered_mask
 
-    precomputed_mask[precomputed_mask == 1] = true_mask
+def ball_growing(full_pcd, seed_pcd, grow_iter = 1, thresh=None):
+    with torch.no_grad():
+        # min_x, min_y, min_z = seed_pcd[:,0].min(), seed_pcd[:,1].min(), seed_pcd[:,2].min()
+        # max_x, max_y, max_z = seed_pcd[:,0].max(), seed_pcd[:,1].max(), seed_pcd[:,2].max()
+
+        # lx, ly, lz = max_x - min_x, max_y - min_y, max_z - min_z
+        # min_x, min_y, min_z = min_x - lx*0.05, min_y - ly*0.05, min_z - lz*0.05
+        # max_x, max_y, max_z = max_x + lx*0.05, max_y + ly*0.05, max_z + lz*0.05
+
+        # cutout_mask = (full_pcd[:,0] < max_x) * (full_pcd[:,1] < max_y) * (full_pcd[:,2] < max_z)
+        # cutout_mask *= (full_pcd[:,0] > min_x) * (full_pcd[:,1] > min_y) * (full_pcd[:,2] > min_z)
+        
+        # cutout_point_cloud = full_pcd[cutout_mask > 0]
+        cutout_point_cloud = full_pcd
+        cutout_mask = torch.ones(full_pcd.shape[0]).bool().cuda()
+
+        if thresh is None:
+            nearest_k_distance = pytorch3d.ops.knn_points(
+                seed_pcd.unsqueeze(0),
+                seed_pcd.unsqueeze(0),
+                K=2,
+            ).dists
+            # mean_nearest_k_distance, std_nearest_k_distance = nearest_k_distance[:,:,1:].mean(), nearest_k_distance[:,:,1:].std()
+            thresh = torch.max(nearest_k_distance).item()
+        # print("spatial distance threshold:", thresh)
+
+        for i in range(grow_iter):
+            num_points_in_seed = seed_pcd.shape[0]
+            res = pytorch3d.ops.ball_query(
+                cutout_point_cloud.unsqueeze(0), 
+                seed_pcd.unsqueeze(0),
+                K=1,
+                radius=thresh,
+                return_nn=False
+            ).idx
+            mask = (res != -1).sum(-1) != 0
+            mask = mask.squeeze()
+            seed_pcd = cutout_point_cloud[mask, :]
+        
+        final_mask = cutout_mask.clone()
+        final_mask[final_mask != 0] = mask > 0
+
+    return final_mask
+
+#! SAM
+# def postprocess_statistical_filtering(pcd, precomputed_mask = None, max_time = 5):
     
-    # print(time.time() - start_time)
-    return confirmed_point.squeeze().detach().cpu().numpy(), precomputed_mask, test_threshold
+#     if type(pcd) == np.ndarray:
+#         pcd = torch.from_numpy(pcd).cuda()
+#     else:
+#         pcd = pcd.cuda()
+
+#     num_points = pcd.shape[0]
+#     # (N, P1, K)
+
+#     std_nearest_k_distance = 10
+#     std = 10
     
-def postprocess_growing(original_pcd, point_colors, seed_pcd, seed_point_colors, thresh = 0.05, grow_iter = 1):
-    # s_time = time.time()
-    # min_x, min_y, min_z = seed_pcd[:,0].min(), seed_pcd[:,1].min(), seed_pcd[:,2].min()
-    # max_x, max_y, max_z = seed_pcd[:,0].max(), seed_pcd[:,1].max(), seed_pcd[:,2].max()
+#     while std > 0.1 and max_time > 0:
+#         nearest_k_distance = pytorch3d.ops.knn_points(
+#             pcd.unsqueeze(0),
+#             pcd.unsqueeze(0),
+#             K=int(num_points**0.5),
+#         ).dists
+#         # print(nearest_k_distance.shape)
+#         mean_nearest_k_distance = nearest_k_distance.mean(dim = -1)
+#         mean, std = mean_nearest_k_distance.mean(), mean_nearest_k_distance.std()
+#         # mean_nearest_k_distance, std_nearest_k_distance = nearest_k_distance.mean(), nearest_k_distance.std()
+#         # print(std_nearest_k_distance, "std_nearest_k_distance")
+#         # print(std, "std_nearest_k_distance")
+#         mask = mean_nearest_k_distance < mean + std
+#         # mask = nearest_k_distance.mean(dim = -1) < mean_nearest_k_distance + std_nearest_k_distance
 
-    # lx, ly, lz = max_x - min_x, max_y - min_y, max_z - min_z
-    # min_x, min_y, min_z = min_x - lx*0.05, min_y - ly*0.05, min_z - lz*0.05
-    # max_x, max_y, max_z = max_x + lx*0.05, max_y + ly*0.05, max_z + lz*0.05
+#         mask = mask.squeeze()
 
-    # cutout_mask = (original_pcd[:,0] < max_x) * (original_pcd[:,1] < max_y) * (original_pcd[:,2] < max_z)
-    # cutout_mask *= (original_pcd[:,0] > min_x) * (original_pcd[:,1] > min_y) * (original_pcd[:,2] > min_z)
+#         pcd = pcd[mask,:]
+#         if precomputed_mask is not None:
+#             precomputed_mask[precomputed_mask != 0] = mask
+#         max_time -= 1
     
-    # cutout_point_cloud = original_pcd[cutout_mask > 0]
-    cutout_point_cloud = original_pcd
-    cutout_mask = torch.ones(original_pcd.shape[0]).bool().cuda()
-
-    for i in range(grow_iter):
-        num_points_in_seed = seed_pcd.shape[0]
-        res = pytorch3d.ops.ball_query(
-            cutout_point_cloud.unsqueeze(0), 
-            seed_pcd.unsqueeze(0),
-            K=1,
-            radius=thresh,
-            return_nn=False
-        ).idx
-
-        mask = (res != -1).sum(-1) != 0
-
-        mask = mask.squeeze()
-
-        seed_pcd = cutout_point_cloud[mask, :]
+#     test_nearest_k_distance = pytorch3d.ops.knn_points(
+#         pcd.unsqueeze(0),
+#         pcd.unsqueeze(0),
+#         K=2,
+#     ).dists
+#     # mean_nearest_k_distance, std_nearest_k_distance = test_nearest_k_distance[:,:,1:].mean(), test_nearest_k_distance[:,:,1:].std()
+#     test_threshold = torch.max(test_nearest_k_distance)
     
-    final_mask = cutout_mask.clone()
-    final_mask[final_mask != 0] = mask > 0
+#     return pcd.squeeze(), test_threshold, precomputed_mask
+    
+# def postprocess_grad_based_statistical_filtering(pcd, precomputed_mask, gaussians, view, sam_mask, pipeline_args, bg_color):
+#     # start_time = time.time()
+    
+#     # background = torch.zeros(gaussians.get_opacity.shape[0], 3, device = 'cuda')
 
-    # print(mask.count_nonzero())
-    # print(time.time() - s_time)
+#     # project 2D mask onto the segmented Gaussians
+#     grad_catch_mask = torch.zeros(gaussians.get_opacity.shape[0], 1, device = 'cuda')
+#     grad_catch_mask[precomputed_mask, :] = 1
+#     grad_catch_mask.requires_grad = True
 
-    return seed_pcd, final_mask, None
+#     grad_catch_2dmask = render(
+#         view, 
+#         gaussians, 
+#         pipeline_args, 
+#         bg_color,
+#         filtered_mask=~precomputed_mask, 
+#         override_color=None, #torch.zeros(gaussians.get_opacity.shape[0], 3, device = 'cuda'),
+#         override_mask=grad_catch_mask,
+#         )['mask']
+
+#     target_mask = torch.tensor(sam_mask, device=grad_catch_2dmask.device)
+#     target_mask = torch.nn.functional.interpolate(target_mask.unsqueeze(0).unsqueeze(0).float(), size=grad_catch_2dmask.shape[-2:] , mode='bilinear').squeeze(0).repeat([3,1,1])
+#     target_mask[target_mask > 0.5] = 1
+#     target_mask[target_mask != 1] = 0
+
+#     loss = -(target_mask * grad_catch_2dmask).sum() + 10 * ((1-target_mask)* grad_catch_2dmask).sum()
+#     loss.backward()
+
+#     grad_score = grad_catch_mask.grad[precomputed_mask != 0].clone().squeeze()
+#     grad_score = -grad_score
+    
+#     pos_grad_score = grad_score.clone()
+#     pos_grad_score[pos_grad_score <= 0] = 0
+#     pos_grad_score[pos_grad_score <= pos_grad_score.mean() + pos_grad_score.std()] = 0
+#     pos_grad_score[pos_grad_score != 0] = 1
+
+#     confirmed_mask = pos_grad_score.bool()
+
+#     if type(pcd) == np.ndarray:
+#         pcd = torch.from_numpy(pcd).cuda()
+#     else:
+#         pcd = pcd.cuda()
+
+#     confirmed_point = pcd[confirmed_mask == 1]
+
+#     confirmed_point, _, _ = postprocess_statistical_filtering(confirmed_point, max_time=5)
+        
+#     test_nearest_k_distance = pytorch3d.ops.knn_points(
+#         confirmed_point.unsqueeze(0),
+#         confirmed_point.unsqueeze(0),
+#         K=2,
+#     ).dists
+#     mean_nearest_k_distance, std_nearest_k_distance = test_nearest_k_distance[:,:,1:].mean(), test_nearest_k_distance[:,:,1:].std()
+#     test_threshold = torch.max(test_nearest_k_distance)
+#     # print("test threshold", test_threshold)
+
+#     while True:
+
+#         nearest_k_distance = pytorch3d.ops.knn_points(
+#             pcd.unsqueeze(0),
+#             confirmed_point.unsqueeze(0),
+#             K=1,
+#         ).dists
+#         mask = nearest_k_distance.mean(dim = -1) <= test_threshold
+#         mask = mask.squeeze()
+#         true_mask = mask
+#         if torch.abs(true_mask.count_nonzero() - confirmed_point.shape[0]) / confirmed_point.shape[0] < 0.001:
+#             break
+
+#         confirmed_point = pcd[true_mask,:]
+
+#     precomputed_mask[precomputed_mask == 1] = true_mask
+    
+#     # print(time.time() - start_time)
+#     return confirmed_point.squeeze().detach().cpu().numpy(), precomputed_mask, test_threshold
+    
+# def postprocess_growing(original_pcd, point_colors, seed_pcd, seed_point_colors, thresh = 0.05, grow_iter = 1):
+#     # s_time = time.time()
+#     # min_x, min_y, min_z = seed_pcd[:,0].min(), seed_pcd[:,1].min(), seed_pcd[:,2].min()
+#     # max_x, max_y, max_z = seed_pcd[:,0].max(), seed_pcd[:,1].max(), seed_pcd[:,2].max()
+
+#     # lx, ly, lz = max_x - min_x, max_y - min_y, max_z - min_z
+#     # min_x, min_y, min_z = min_x - lx*0.05, min_y - ly*0.05, min_z - lz*0.05
+#     # max_x, max_y, max_z = max_x + lx*0.05, max_y + ly*0.05, max_z + lz*0.05
+
+#     # cutout_mask = (original_pcd[:,0] < max_x) * (original_pcd[:,1] < max_y) * (original_pcd[:,2] < max_z)
+#     # cutout_mask *= (original_pcd[:,0] > min_x) * (original_pcd[:,1] > min_y) * (original_pcd[:,2] > min_z)
+    
+#     # cutout_point_cloud = original_pcd[cutout_mask > 0]
+#     cutout_point_cloud = original_pcd
+#     cutout_mask = torch.ones(original_pcd.shape[0]).bool().cuda()
+
+#     for i in range(grow_iter):
+#         num_points_in_seed = seed_pcd.shape[0]
+#         res = pytorch3d.ops.ball_query(
+#             cutout_point_cloud.unsqueeze(0), 
+#             seed_pcd.unsqueeze(0),
+#             K=1,
+#             radius=thresh,
+#             return_nn=False
+#         ).idx
+
+#         mask = (res != -1).sum(-1) != 0
+
+#         mask = mask.squeeze()
+
+#         seed_pcd = cutout_point_cloud[mask, :]
+    
+#     final_mask = cutout_mask.clone()
+#     final_mask[final_mask != 0] = mask > 0
+
+#     # print(mask.count_nonzero())
+#     # print(time.time() - s_time)
+
+#     return seed_pcd, final_mask, None
 
 def show_mask(mask, ax, random_color=False):
     if random_color:

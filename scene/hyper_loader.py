@@ -25,7 +25,7 @@ class CameraInfo(NamedTuple):
     FovY: np.array
     FovX: np.array
     image: np.array
-    dino_features: np.array
+    dino_feature: np.array
     gt_mask: np.array
     image_path: str
     image_name: str
@@ -181,7 +181,7 @@ class Load_hyper_data(Dataset):
         FovX = focal2fov(camera.focal_length, self.w)
         image_path = "/".join(self.all_img[idx].split("/")[:-1])
         image_name = self.all_img[idx].split("/")[-1]
-        dino_features = torch.nn.functional.normalize(self.dino_features_dict[image_name], dim=0) if self.dino_features_dict is not None else None
+        dino_feature = torch.nn.functional.normalize(self.dino_features_dict[image_name], dim=0) if self.dino_features_dict is not None else None
         
         if self.split == "test" and self.all_gt_mask is not None:
             gt_mask = Image.open(self.all_gt_mask[idx])
@@ -200,7 +200,7 @@ class Load_hyper_data(Dataset):
 
         
         caminfo = CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                             dino_features=dino_features, gt_mask=gt_mask,
+                             dino_feature=dino_feature, gt_mask=gt_mask,
                               image_path=image_path, image_name=image_name, width=w, height=h, time=time, mask=mask
                               )
         self.map[idx] = caminfo
@@ -237,7 +237,7 @@ def format_hyper_data(data_class, split):
         else:
             mask = None
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=None,
-                              dino_features=None, gt_mask=None,
+                              dino_feature=None, gt_mask=None,
                               image_path=image_path, image_name=image_name, width=int(data_class.w), 
                               height=int(data_class.h), time=time, mask=mask
                               )

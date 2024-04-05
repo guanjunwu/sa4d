@@ -100,8 +100,7 @@ def statistical_filtering(pcd, precomputed_mask, max_time = 1):
             nearest_k_distance = pytorch3d.ops.knn_points(
                 filtered_pcd.unsqueeze(0),
                 filtered_pcd.unsqueeze(0),
-                # K=int(num_points**0.5),
-                K=10
+                K=int(num_points**0.5),
             ).dists
             # print(nearest_k_distance.shape)
             mean_nearest_k_distance = nearest_k_distance.mean(dim = -1)
@@ -121,19 +120,19 @@ def statistical_filtering(pcd, precomputed_mask, max_time = 1):
 
 def ball_growing(full_pcd, seed_pcd, grow_iter = 1, thresh=None):
     with torch.no_grad():
-        # min_x, min_y, min_z = seed_pcd[:,0].min(), seed_pcd[:,1].min(), seed_pcd[:,2].min()
-        # max_x, max_y, max_z = seed_pcd[:,0].max(), seed_pcd[:,1].max(), seed_pcd[:,2].max()
+        min_x, min_y, min_z = seed_pcd[:,0].min(), seed_pcd[:,1].min(), seed_pcd[:,2].min()
+        max_x, max_y, max_z = seed_pcd[:,0].max(), seed_pcd[:,1].max(), seed_pcd[:,2].max()
 
-        # lx, ly, lz = max_x - min_x, max_y - min_y, max_z - min_z
-        # min_x, min_y, min_z = min_x - lx*0.05, min_y - ly*0.05, min_z - lz*0.05
-        # max_x, max_y, max_z = max_x + lx*0.05, max_y + ly*0.05, max_z + lz*0.05
+        lx, ly, lz = max_x - min_x, max_y - min_y, max_z - min_z
+        min_x, min_y, min_z = min_x - lx*0.05, min_y - ly*0.05, min_z - lz*0.05
+        max_x, max_y, max_z = max_x + lx*0.05, max_y + ly*0.05, max_z + lz*0.05
 
-        # cutout_mask = (full_pcd[:,0] < max_x) * (full_pcd[:,1] < max_y) * (full_pcd[:,2] < max_z)
-        # cutout_mask *= (full_pcd[:,0] > min_x) * (full_pcd[:,1] > min_y) * (full_pcd[:,2] > min_z)
+        cutout_mask = (full_pcd[:,0] < max_x) * (full_pcd[:,1] < max_y) * (full_pcd[:,2] < max_z)
+        cutout_mask *= (full_pcd[:,0] > min_x) * (full_pcd[:,1] > min_y) * (full_pcd[:,2] > min_z)
         
-        # cutout_point_cloud = full_pcd[cutout_mask > 0]
-        cutout_point_cloud = full_pcd
-        cutout_mask = torch.ones(full_pcd.shape[0]).bool().cuda()
+        cutout_point_cloud = full_pcd[cutout_mask > 0]
+        # cutout_point_cloud = full_pcd
+        # cutout_mask = torch.ones(full_pcd.shape[0]).bool().cuda()
 
         if thresh is None:
             nearest_k_distance = pytorch3d.ops.knn_points(

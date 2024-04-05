@@ -1,0 +1,4 @@
+# ninja log v5
+0	10754	1712283579521112037	/data/sxj/Segment-Anything-in-4D/submodules/simple-knn/build/temp.linux-x86_64-cpython-38/simple_knn.o	8edc601ac0c0cccb
+0	22475	1712283591225637387	/data/sxj/Segment-Anything-in-4D/submodules/simple-knn/build/temp.linux-x86_64-cpython-38/ext.o	a0c231dd33496446
+0	45335	1712283614094669241	/data/sxj/Segment-Anything-in-4D/submodules/simple-knn/build/temp.linux-x86_64-cpython-38/spatial.o	95d8d4b38408ef92

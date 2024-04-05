@@ -14,6 +14,52 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from math import exp
 import lpips
+
+def reg3d_loss(pcd, features, k=5, lambda_val=2.0, max_points=200000, sample_size=1000):
+    """
+    Compute the neighborhood consistency loss for a 3D point cloud using Top-k neighbors
+    and the KL divergence.
+    
+    :param features: Tensor of shape (N, D), where N is the number of points and D is the dimensionality of the feature.
+    :param predictions: Tensor of shape (N, C), where C is the number of classes.
+    :param k: Number of neighbors to consider.
+    :param lambda_val: Weighting factor for the loss.
+    :param max_points: Maximum number of points for downsampling. If the number of points exceeds this, they are randomly downsampled.
+    :param sample_size: Number of points to randomly sample for computing the loss.
+    
+    :return: Computed loss value.
+    """
+    # Conditionally downsample if points exceed max_points
+    if pcd.size(0) > max_points:
+        indices = torch.randperm(pcd.size(0))[:max_points]
+        pcd = pcd[indices]
+        features = features[indices]
+
+    # Randomly sample points for which we'll compute the loss
+    indices = torch.randperm(pcd.size(0))[:sample_size]
+    sample_points = pcd[indices]
+    sample_features = features[indices]
+
+    # Compute top-k nearest neighbors directly in PyTorch
+    dists = torch.cdist(sample_points, pcd)  # Compute pairwise distances 
+    _, neighbor_indices_tensor = dists.topk(k, largest=False)  # Get top-k smallest distances
+
+    # Fetch neighbor features using indexing
+    neighbor_features = features[neighbor_indices_tensor]  # (s, k, C)
+
+    # # Compute KL divergence
+    # kl = sample_features.unsqueeze(1) * (torch.log(sample_features.unsqueeze(1) + 1e-10) - torch.log(neighbor_features + 1e-10))
+    # loss = kl.sum(dim=-1).mean()
+    loss = ((sample_features.unsqueeze(1) - neighbor_features) ** 2).mean()
+
+    # # Normalize loss into [0, 1]
+    # num_classes = features.size(1)
+    # normalized_loss = loss / num_classes
+
+    # return lambda_val * normalized_loss
+    return lambda_val * loss
+
+
 def lpips_loss(img1, img2, lpips_model):
     loss = lpips_model(img1,img2)
     return loss.mean()

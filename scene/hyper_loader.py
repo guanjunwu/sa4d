@@ -25,7 +25,7 @@ class CameraInfo(NamedTuple):
     FovY: np.array
     FovX: np.array
     image: np.array
-    dino_feature: np.array
+    objects: np.array
     gt_mask: np.array
     image_path: str
     image_name: str
@@ -40,12 +40,13 @@ class Load_hyper_data(Dataset):
                 ratio=1.0,
                 use_bg_points=False,
                 split="train",
-                need_features = False,
+                object_masks = False,
                 need_gt_masks = False,
                 sam_mask_downsample = None,
                 ):
-        self.dino_features_dict = torch.load(os.path.join(datadir, "rgb", "features.pt"), map_location="cpu") if need_features else None
-        self.sam_mask_downsample = sam_mask_downsample
+        self.object_folder = os.path.join(datadir, "object_mask") if object_masks else None
+        self.num_classes = 0
+        # self.sam_mask_downsample = sam_mask_downsample
         
         from .utils import Camera
         datadir = os.path.expanduser(datadir)
@@ -181,7 +182,13 @@ class Load_hyper_data(Dataset):
         FovX = focal2fov(camera.focal_length, self.w)
         image_path = "/".join(self.all_img[idx].split("/")[:-1])
         image_name = self.all_img[idx].split("/")[-1]
-        dino_feature = torch.nn.functional.normalize(self.dino_features_dict[image_name], dim=0) if self.dino_features_dict is not None else None
+        if self.object_folder is not None:
+            object_path = os.path.join(self.object_folder, image_name)
+            objects = Image.open(object_path) # if os.path.exists(object_path) else None
+            objects = torch.from_numpy(np.array(objects))
+            self.num_classes = max(self.num_classes, objects.max())
+        else:
+            objects = None
         
         if self.split == "test" and self.all_gt_mask is not None:
             gt_mask = Image.open(self.all_gt_mask[idx])
@@ -200,7 +207,7 @@ class Load_hyper_data(Dataset):
 
         
         caminfo = CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                             dino_feature=dino_feature, gt_mask=gt_mask,
+                             objects=objects, gt_mask=gt_mask,
                               image_path=image_path, image_name=image_name, width=w, height=h, time=time, mask=mask
                               )
         self.map[idx] = caminfo
@@ -237,7 +244,7 @@ def format_hyper_data(data_class, split):
         else:
             mask = None
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=None,
-                              dino_feature=None, gt_mask=None,
+                              objects=None, gt_mask=None,
                               image_path=image_path, image_name=image_name, width=int(data_class.w), 
                               height=int(data_class.h), time=time, mask=mask
                               )

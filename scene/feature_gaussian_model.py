@@ -82,8 +82,8 @@ class GaussianModel:
             #     torch.nn.LeakyReLU(),
             #     torch.nn.Linear(64, feature_dim, bias=True)
             # ).cuda()
-            self._mlp = torch.nn.Sequential(nn.Linear(feature_dim, 64, bias=True)).cuda()
-            print("Feature Dimension: ", feature_dim)
+            self._mlp = torch.nn.Conv2d(feature_dim, 256, kernel_size=1).cuda()
+            # print("Feature Dimension: ", feature_dim)
 
     def capture(self):
         if self.mode == "scene":
@@ -274,7 +274,7 @@ class GaussianModel:
             l = [
                 {'params': [self._sam_features], 'lr': training_args.feature_lr, "name": "sam_features"},
                 # {'params': self._decoder.parameters(), 'lr': 1e-4, 'name': 'decoder'},
-                {'params': self._mlp.parameters(), 'lr': training_args.feature_lr, 'name': 'mlp'}
+                {'params': self._mlp.parameters(), 'lr': 5e-4, 'name': 'mlp'}
                 ]
             self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
             # self.xyz_scheduler_args = get_expon_lr_func(lr_init=training_args.position_lr_init*self.spatial_lr_scale,
@@ -345,12 +345,12 @@ class GaussianModel:
         else:
             assert False
             
-    def load_decoder(self, path):
-        if self.mode == "feature":
-            self._decoder.load_state_dict(torch.load(os.path.join(path, "decoder.pt")))
-            self._decoder.cuda()
-        else:
-            assert False
+    # def load_decoder(self, path):
+    #     if self.mode == "feature":
+    #         self._decoder.load_state_dict(torch.load(os.path.join(path, "decoder.pt")))
+    #         self._decoder.cuda()
+    #     else:
+    #         assert False
                     
     def save_deformation(self, path):
         torch.save(self._deformation.state_dict(),os.path.join(path, "deformation.pth"))
@@ -360,8 +360,8 @@ class GaussianModel:
     def save_mlp(self, path):
         torch.save(self._mlp.state_dict(), os.path.join(path, "mlp.pt"))
         
-    def save_decoder(self, path):
-        torch.save(self._decoder.state_dict(), os.path.join(path, "decoder.pt"))
+    # def save_decoder(self, path):
+    #     torch.save(self._decoder.state_dict(), os.path.join(path, "decoder.pt"))
         
     # def save_masked_ply(self, path, mask):
     #     mkdir_p(os.path.dirname(path))

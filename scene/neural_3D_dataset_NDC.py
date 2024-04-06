@@ -225,11 +225,12 @@ class Neural3D_NDC_Dataset(Dataset):
         eval_step=1,
         eval_index=0,
         sphere_scale=1.0,
-        need_features=False,
+        object_masks=False,
         mode = "scene"
     ):
-        self.need_features = need_features
+        self.object_masks = object_masks
         self.mode = mode
+        self.num_classes = 0
         
         self.img_wh = (
             int(1352 / downsample),
@@ -300,7 +301,7 @@ class Neural3D_NDC_Dataset(Dataset):
                 poses_i_train.append(i)
         self.poses = poses[poses_i_train]
         self.poses_all = poses
-        self.image_paths, self.image_poses, self.image_times, N_cam, N_time, self.dino_features, self.gt_mask_paths = self.load_images_path(videos, self.split)
+        self.image_paths, self.image_poses, self.image_times, N_cam, N_time, self.objects_paths, self.gt_mask_paths = self.load_images_path(videos, self.split)
         self.cam_number = N_cam
         self.time_number = N_time
         
@@ -313,7 +314,7 @@ class Neural3D_NDC_Dataset(Dataset):
         image_paths = []
         image_poses = []
         image_times = []
-        dino_features = [] if self.need_features else None
+        objects_paths = [] if self.object_masks else None
         gt_mask_paths = [] if self.split == "test" else None
         N_cams = 0
         N_time = 0
@@ -325,7 +326,8 @@ class Neural3D_NDC_Dataset(Dataset):
             else:
                 if split == "test":
                     continue
-            if split == "train" and self.mode == "feature" and index != 4: continue
+            if split == "train" and self.mode == "feature" and index != 15: continue
+            
             N_cams +=1
             count = 0
             video_images_path = video_path.split('.')[0]
@@ -352,7 +354,8 @@ class Neural3D_NDC_Dataset(Dataset):
                     else:
                         break
             
-            dino_features_dict = torch.load(os.path.join(video_path.split('.')[0], "features.pt"), map_location="cpu") if self.need_features else None
+            # dino_features_dict = torch.load(os.path.join(video_path.split('.')[0], "features.pt"), map_location="cpu") if self.need_features else None
+            object_folder = os.path.join(video_path.split('.')[0], "object_mask") if self.object_masks else None
             gt_mask_folder = os.path.join(video_path.split('.')[0], "gt_mask", "man") if self.split == "test" else None
             images_path = os.listdir(image_path)
             images_path.sort()
@@ -360,8 +363,8 @@ class Neural3D_NDC_Dataset(Dataset):
             for idx, path in enumerate(images_path):
                 if this_count >=countss:break
                 image_paths.append(os.path.join(image_path, path))
-                if dino_features_dict is not None:
-                    dino_features.append(torch.nn.functional.normalize(dino_features_dict[path], dim=0))
+                if object_folder is not None:
+                    objects_paths.append(os.path.join(object_folder, path.split('.')[0]+'.png'))
                 if gt_mask_folder is not None:
                     gt_mask_paths.append(os.path.join(gt_mask_folder, path.split('.')[0]+'.png'))
                 pose = np.array(self.poses_all[index])
@@ -379,7 +382,7 @@ class Neural3D_NDC_Dataset(Dataset):
 
                 #     video_data_save[count] = img.permute(1,2,0)
                 #     count += 1
-        return image_paths, image_poses, image_times, N_cams, N_time, dino_features, gt_mask_paths
+        return image_paths, image_poses, image_times, N_cams, N_time, objects_paths, gt_mask_paths
     
     def __len__(self):
         return len(self.image_paths)
@@ -388,9 +391,14 @@ class Neural3D_NDC_Dataset(Dataset):
         img = Image.open(self.image_paths[index])
         img = img.resize(self.img_wh, Image.LANCZOS)
         img = self.transform(img)
-        dino_feature = self.dino_features[index] if self.need_features else None
+        if self.objects_paths is not None:
+            objects = Image.open(self.objects_paths[index])
+            objects = torch.from_numpy(np.array(objects))
+            self.num_classes = max(self.num_classes, objects.max())
+        else:
+            objects = None
         gt_mask = PILtoTorch(Image.open(self.gt_mask_paths[index]), None) if self.gt_mask_paths is not None else None
-        return img, self.image_poses[index], self.image_times[index], dino_feature, gt_mask
+        return img, self.image_poses[index], self.image_times[index], objects, gt_mask
     
     def load_pose(self,index):
         return self.image_poses[index]

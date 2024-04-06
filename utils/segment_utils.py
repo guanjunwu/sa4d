@@ -7,8 +7,78 @@ import numpy as np
 from argparse import ArgumentParser, Namespace
 from gaussian_renderer import render
 from utils.sh_utils import SH2RGB
+import colorsys
+from scipy.spatial import ConvexHull, Delaunay
 
 to8b = lambda x : (255*np.clip(x.cpu().numpy(),0,1)).astype(np.uint8)
+
+def id2rgb(id, max_num_obj=256):
+    if not 0 <= id <= max_num_obj:
+        raise ValueError("ID should be in range(0, max_num_obj)")
+
+    # Convert the ID into a hue value
+    golden_ratio = 1.6180339887
+    h = ((id * golden_ratio) % 1)           # Ensure value is between 0 and 1
+    s = 0.5 + (id % 2) * 0.5       # Alternate between 0.5 and 1.0
+    l = 0.5
+
+    
+    # Use colorsys to convert HSL to RGB
+    rgb = np.zeros((3, ), dtype=np.uint8)
+    if id==0:   #invalid region
+        return rgb
+    r, g, b = colorsys.hls_to_rgb(h, l, s)
+    rgb[0], rgb[1], rgb[2] = int(r*255), int(g*255), int(b*255)
+
+    return rgb
+
+def visualize_obj(objects):
+    rgb_mask = np.zeros((*objects.shape[-2:], 3), dtype=np.uint8)
+    all_obj_ids = np.unique(objects)
+    for id in all_obj_ids:
+        colored_mask = id2rgb(id)
+        rgb_mask[objects == id] = colored_mask
+    return rgb_mask
+
+def points_inside_convex_hull(point_cloud, mask, remove_outliers=True, outlier_factor=1.0):
+    """
+    Given a point cloud and a mask indicating a subset of points, this function computes the convex hull of the 
+    subset of points and then identifies all points from the original point cloud that are inside this convex hull.
+    
+    Parameters:
+    - point_cloud (torch.Tensor): A tensor of shape (N, 3) representing the point cloud.
+    - mask (torch.Tensor): A tensor of shape (N,) indicating the subset of points to be used for constructing the convex hull.
+    - remove_outliers (bool): Whether to remove outliers from the masked points before computing the convex hull. Default is True.
+    - outlier_factor (float): The factor used to determine outliers based on the IQR method. Larger values will classify more points as outliers.
+    
+    Returns:
+    - inside_hull_tensor_mask (torch.Tensor): A mask of shape (N,) with values set to True for the points inside the convex hull 
+                                              and False otherwise.
+    """
+
+    # Extract the masked points from the point cloud
+    masked_points = point_cloud[mask].cpu().numpy()
+
+    # Remove outliers if the option is selected
+    if remove_outliers:
+        Q1 = np.percentile(masked_points, 25, axis=0)
+        Q3 = np.percentile(masked_points, 75, axis=0)
+        IQR = Q3 - Q1
+        outlier_mask = (masked_points < (Q1 - outlier_factor * IQR)) | (masked_points > (Q3 + outlier_factor * IQR))
+        filtered_masked_points = masked_points[~np.any(outlier_mask, axis=1)]
+    else:
+        filtered_masked_points = masked_points
+
+    # Compute the Delaunay triangulation of the filtered masked points
+    delaunay = Delaunay(filtered_masked_points)
+
+    # Determine which points from the original point cloud are inside the convex hull
+    points_inside_hull_mask = delaunay.find_simplex(point_cloud.cpu().numpy()) >= 0
+
+    # Convert the numpy mask back to a torch tensor and return
+    inside_hull_tensor_mask = torch.tensor(points_inside_hull_mask, device='cuda')
+
+    return inside_hull_tensor_mask
 
 def get_combined_args(parser : ArgumentParser, model_path, target):
     cmdlne_string = ['--model_path', model_path]

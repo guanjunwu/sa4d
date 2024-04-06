@@ -15,7 +15,7 @@ from torch.autograd import Variable
 from math import exp
 import lpips
 
-def reg3d_loss(pcd, features, k=5, lambda_val=2.0, max_points=200000, sample_size=1000):
+def loss_cls_3d(features, predictions, k=5, lambda_val=2.0, max_points=200000, sample_size=800):
     """
     Compute the neighborhood consistency loss for a 3D point cloud using Top-k neighbors
     and the KL divergence.
@@ -30,35 +30,33 @@ def reg3d_loss(pcd, features, k=5, lambda_val=2.0, max_points=200000, sample_siz
     :return: Computed loss value.
     """
     # Conditionally downsample if points exceed max_points
-    if pcd.size(0) > max_points:
-        indices = torch.randperm(pcd.size(0))[:max_points]
-        pcd = pcd[indices]
+    if features.size(0) > max_points:
+        indices = torch.randperm(features.size(0))[:max_points]
         features = features[indices]
+        predictions = predictions[indices]
+
 
     # Randomly sample points for which we'll compute the loss
-    indices = torch.randperm(pcd.size(0))[:sample_size]
-    sample_points = pcd[indices]
+    indices = torch.randperm(features.size(0))[:sample_size]
     sample_features = features[indices]
+    sample_preds = predictions[indices]
 
     # Compute top-k nearest neighbors directly in PyTorch
-    dists = torch.cdist(sample_points, pcd)  # Compute pairwise distances 
+    dists = torch.cdist(sample_features, features)  # Compute pairwise distances
     _, neighbor_indices_tensor = dists.topk(k, largest=False)  # Get top-k smallest distances
 
-    # Fetch neighbor features using indexing
-    neighbor_features = features[neighbor_indices_tensor]  # (s, k, C)
+    # Fetch neighbor predictions using indexing
+    neighbor_preds = predictions[neighbor_indices_tensor]
 
-    # # Compute KL divergence
-    # kl = sample_features.unsqueeze(1) * (torch.log(sample_features.unsqueeze(1) + 1e-10) - torch.log(neighbor_features + 1e-10))
-    # loss = kl.sum(dim=-1).mean()
-    loss = ((sample_features.unsqueeze(1) - neighbor_features) ** 2).mean()
+    # Compute KL divergence
+    kl = sample_preds.unsqueeze(1) * (torch.log(sample_preds.unsqueeze(1) + 1e-10) - torch.log(neighbor_preds + 1e-10))
+    loss = kl.sum(dim=-1).mean()
 
-    # # Normalize loss into [0, 1]
-    # num_classes = features.size(1)
-    # normalized_loss = loss / num_classes
+    # Normalize loss into [0, 1]
+    num_classes = predictions.size(1)
+    normalized_loss = loss / num_classes
 
-    # return lambda_val * normalized_loss
-    return lambda_val * loss
-
+    return lambda_val * normalized_loss
 
 def lpips_loss(img1, img2, lpips_model):
     loss = lpips_model(img1,img2)

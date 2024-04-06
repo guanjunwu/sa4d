@@ -63,7 +63,7 @@ class ModelParams(ParamGroup):
         self.feature_dim = 32
         # self.init_from_3dgs_pcd = False
         self._feature_model_path = ""
-        self.need_features = False
+        self.object_masks = False
         self.need_masks = False
         self.need_gt_masks = False
         
@@ -122,7 +122,7 @@ class OptimizationParams(ParamGroup):
         self.zerostamp_init=False
         self.custom_sampler=None
         self.iterations = 30_000
-        self.feature_iterations = 5_000
+        self.feature_iterations = 10_000
         self.coarse_iterations = 3000
         self.position_lr_init = 0.00016
         self.position_lr_final = 0.0000016
@@ -160,8 +160,13 @@ class OptimizationParams(ParamGroup):
         self.add_point=False
         
         # Segmentation parameters
-        self.sam_feature_lr = 1e-3
-        self.sam_proj_lr = 1e-4
+        self.reg3d_interval= 2
+        self.reg3d_k= 5
+        self.reg3d_lambda_val= 2
+        self.reg3d_max_points= 300000
+        self.reg3d_sample_size= 1000
+        # self.sam_feature_lr = 1e-3
+        # self.sam_proj_lr = 1e-4
         # self.mask_lr = 1.0
         # self.optimization_times = 2
         # self.IoU_thresh = 0.5

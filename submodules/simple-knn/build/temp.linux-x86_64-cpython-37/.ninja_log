@@ -1,7 +1,0 @@
-# ninja log v5
-0	10295	1709452564892746476	/data/sxj/4DGaussians/submodules/simple-knn/build/temp.linux-x86_64-cpython-37/simple_knn.o	1b09e717bf03520d
-0	22496	1709452577073067823	/data/sxj/4DGaussians/submodules/simple-knn/build/temp.linux-x86_64-cpython-37/ext.o	edfe3e6b2c6a6968
-0	44896	1709452599489658997	/data/sxj/4DGaussians/submodules/simple-knn/build/temp.linux-x86_64-cpython-37/spatial.o	d92f2fc33e4740cd
-0	10358	1709711592966929990	/data/sxj/Segment-Anything-in-4D/submodules/simple-knn/build/temp.linux-x86_64-cpython-37/simple_knn.o	4d3852ae5602de90
-0	22195	1709711604791233235	/data/sxj/Segment-Anything-in-4D/submodules/simple-knn/build/temp.linux-x86_64-cpython-37/ext.o	a44e0610c6551db9
-1	45157	1709711627763823771	/data/sxj/Segment-Anything-in-4D/submodules/simple-knn/build/temp.linux-x86_64-cpython-37/spatial.o	87b53944b247367c

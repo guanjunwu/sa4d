@@ -37,7 +37,7 @@ class CameraInfo(NamedTuple):
     FovY: np.array
     FovX: np.array
     image: np.array
-    dino_feature: np.array
+    objects: np.array
     gt_mask: np.array
     image_path: str
     image_name: str
@@ -382,7 +382,7 @@ def format_infos(dataset,split):
             FovY = focal2fov(dataset.focal[0], image.shape[2])
             cameras.append(CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
                                 image_path=image_path, image_name=image_name, width=image.shape[2], height=image.shape[1],
-                                time = time, mask=None, dino_feature=None, gt_mask=None))
+                                time = time, mask=None, objects=None, gt_mask=None))
 
     return cameras
 
@@ -436,7 +436,7 @@ def format_render_poses(poses,data_infos):
         FovY = focal2fov(data_infos.focal[0], image.shape[1])
         cameras.append(CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
                             image_path=image_path, image_name=image_name, width=image.shape[2], height=image.shape[1],
-                            time = time, mask=None, dino_feature=None, gt_mask=None))
+                            time = time, mask=None, objects=None, gt_mask=None))
     return cameras
 
 def add_points(pointsclouds, xyz_min, xyz_max):

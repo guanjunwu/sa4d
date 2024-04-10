@@ -3,6 +3,7 @@
 python train_4dgs.py -s ./data/hypernerf/split-cookie/ --port 6017 --expname "hypernerf/split-cookie" --configs arguments/hypernerf/default.py
 python render.py --model_path "output/hypernerf/split-cookie/" --skip_train --configs arguments/hypernerf/default.py
 python train_ie.py -s ./data/hypernerf/split-cookie/ -m ./output/hypernerf/split-cookie/ --configs arguments/hypernerf/default.py
+python render_ie.py --model_path "output/hypernerf/split-cookie/"  --skip_train --skip_test --configs arguments/hypernerf/default.py
 
 # chickchicken
 python train_4dgs.py -s ./data/hypernerf/chickchicken/ --port 6017 --expname "hypernerf/chickchicken" --configs arguments/hypernerf/chicken.py

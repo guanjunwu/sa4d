@@ -106,7 +106,8 @@ def training(dataset, hyper, opt, pipe, mode="feature", testing_iterations=None,
         gaussians.update_learning_rate(iteration)
 
         gt_obj = viewpoint_cam.objects.cuda().long()
-        objects = render_contrastive_feature(viewpoint_cam, gaussians, pipe, background)["render"]
+        render_pkg = render_contrastive_feature(viewpoint_cam, gaussians, pipe, background)
+        objects = render_pkg["render"]
         logits = gaussians._mlp(objects)
         loss_obj = cls_criterion(logits.unsqueeze(0), gt_obj.unsqueeze(0)).squeeze().mean()
         loss_obj = loss_obj / torch.log(torch.tensor(num_classes))  # normalize to (0,1)
@@ -116,7 +117,7 @@ def training(dataset, hyper, opt, pipe, mode="feature", testing_iterations=None,
             # regularize at certain intervals
             logits3d = gaussians._mlp(gaussians.get_sam_features.unsqueeze(1).permute(2,0,1))
             prob_obj3d = torch.softmax(logits3d,dim=0).squeeze().permute(1,0)
-            loss_obj_3d = loss_cls_3d(gaussians._xyz.squeeze().detach(), prob_obj3d, opt.reg3d_k, opt.reg3d_lambda_val, opt.reg3d_max_points, opt.reg3d_sample_size)
+            loss_obj_3d = loss_cls_3d(render_pkg["deformed_points"].detach(), prob_obj3d, opt.reg3d_k, opt.reg3d_lambda_val, opt.reg3d_max_points, opt.reg3d_sample_size)
             loss = loss_obj + loss_obj_3d
         else:
             loss = loss_obj

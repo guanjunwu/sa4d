@@ -177,7 +177,7 @@ def statistical_filtering(pcd, precomputed_mask, max_time = 1):
             mean, std = mean_nearest_k_distance.mean(), mean_nearest_k_distance.std()
             # mean_nearest_k_distance, std_nearest_k_distance = nearest_k_distance.mean(), nearest_k_distance.std()
             # print(std_nearest_k_distance, "std_nearest_k_distance")
-            # print(std, "std_nearest_k_distance")
+            print(std, "std_nearest_k_distance")
             mask = mean_nearest_k_distance <= mean + std
             # mask = nearest_k_distance.mean(dim = -1) < mean_nearest_k_distance + std_nearest_k_distance
 
@@ -407,4 +407,32 @@ def show_points(coords, labels, ax, marker_size=375):
     pos_points = coords[labels==1]
     neg_points = coords[labels==0]
     ax.scatter(pos_points[:, 0], pos_points[:, 1], color='green', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)
-    ax.scatter(neg_points[:, 0], neg_points[:, 1], color='red', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)   
+    ax.scatter(neg_points[:, 0], neg_points[:, 1], color='red', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)
+    
+def calc_feature_dist(embq, emb):
+    """
+    Args:
+        embq (tensor): (N, C)
+        emb (tensor): (C, H, W) or (K, C)
+
+    Returns:
+        dist: (H, W, N) or (K, N)
+    """
+    l = len(emb.shape)
+    if l == 3:
+        C, H, W = emb.shape
+        emb = emb.view(C, H*W).permute([1, 0]) # (K, C)
+    
+    emb = emb.unsqueeze(1) # (K, 1, C)
+    embq = embq.unsqueeze(0) # (1, N, C)
+    dist = torch.norm(embq - emb, dim=2) # (K, N)
+    
+    # dist = []
+    # for i in range(emb.shape[0]):
+    #     dist.append(torch.norm(embq - emb[i], dim=-1).unsqueeze(0))
+    # dist = torch.cat(dist, 0)
+    
+    if l == 3:
+        dist = dist.view(H, W, -1)
+        
+    return dist  

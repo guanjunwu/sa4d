@@ -147,7 +147,8 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             "mask": rendered_mask,
             "viewspace_points": screenspace_points,
             "visibility_filter" : radii > 0,
-            "radii": radii}
+            "radii": radii,
+            "deformed_points": means3D_final}
 
 def render_segmentation(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, mask, scaling_modifier = 1.0, override_color = None):
     """
@@ -432,4 +433,5 @@ def render_contrastive_feature(viewpoint_camera, pc : GaussianModel, pipe, bg_co
     return {"render": rendered_feature_map,
             "viewspace_points": screenspace_points,
             "visibility_filter" : radii > 0,
-            "radii": radii}
+            "radii": radii,
+            "deformed_points": means3D_final}

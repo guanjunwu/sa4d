@@ -24,6 +24,7 @@ from utils.graphics_utils import BasicPointCloud
 from utils.general_utils import strip_symmetric, build_scaling_rotation
 from utils.point_utils import addpoint, combine_pointcloud, downsample_point_cloud_open3d, find_indices_in_A
 from scene.deformation import deform_network
+from scene.segnet import SegNet
 from scene.regulation import compute_plane_smoothness
 
 class GaussianModel:
@@ -71,8 +72,8 @@ class GaussianModel:
         #! features
         if self.mode == "feature":
             self.sam_feature_dim = feature_dim
-            self._sam_features = torch.empty(0)
-            self._mask = torch.empty(0)
+            # self._sam_features = torch.empty(0)
+            # self._mask = torch.empty(0)
             # self._sam_proj = torch.nn.Sequential(
             #     torch.nn.Linear(256, 64, bias=True),
             #     torch.nn.LayerNorm(64),
@@ -82,7 +83,8 @@ class GaussianModel:
             #     torch.nn.LeakyReLU(),
             #     torch.nn.Linear(64, feature_dim, bias=True)
             # ).cuda()
-            self._mlp = torch.nn.Conv2d(feature_dim, 256, kernel_size=1).cuda()
+            self._mlp = SegNet(args).cuda()
+            self._classifier = torch.nn.Conv2d(feature_dim, 256, kernel_size=1).cuda()
             # print("Feature Dimension: ", feature_dim)
 
     def capture(self):
@@ -113,7 +115,7 @@ class GaussianModel:
                 self._deformation.state_dict(),
                 self._deformation_table,
                 # self.grid,
-                self._sam_features,
+                # self._sam_features,
                 self._features_dc,
                 self._features_rest,
                 self._scaling,
@@ -124,7 +126,8 @@ class GaussianModel:
                 self.denom,
                 self.optimizer.state_dict(),
                 self.spatial_lr_scale,
-                self._mlp.state_dict()
+                self._mlp.state_dict(),
+                self._classifier.state_dict()
             )
     
     def restore(self, model_args, training_args):
@@ -155,7 +158,7 @@ class GaussianModel:
                 deform_state,
                 self._deformation_table,
                 # self.grid,
-                self._sam_features,
+                # self._sam_features,
                 self._features_dc, 
                 self._features_rest,
                 self._scaling, 
@@ -166,10 +169,12 @@ class GaussianModel:
                 denom,
                 opt_dict, 
                 self.spatial_lr_scale,
-                sam_proj_state
+                mlp_state,
+                classifier_state
             ) = model_args
             self.training_setup(training_args)
-            self._mlp.load_state_dict(sam_proj_state)
+            self._mlp.load_state_dict(mlp_state)
+            self._classifier.load_state_dict(classifier_state)
             
         self._deformation.load_state_dict(deform_state)
         self.xyz_gradient_accum = xyz_gradient_accum
@@ -194,9 +199,9 @@ class GaussianModel:
         features_rest = self._features_rest
         return torch.cat((features_dc, features_rest), dim=1)
     
-    @property
-    def get_sam_features(self):
-        return self._sam_features
+    # @property
+    # def get_sam_features(self):
+    #     return self._sam_features
     
     @property
     def get_opacity(self):
@@ -270,11 +275,11 @@ class GaussianModel:
                                                         lr_delay_mult=training_args.deformation_lr_delay_mult,
                                                         max_steps=training_args.position_lr_max_steps)  
         elif self.mode == "feature":
-            self._sam_features.data = torch.randn_like(self._sam_features.data)
+            # self._sam_features.data = torch.randn_like(self._sam_features.data)
             l = [
-                {'params': [self._sam_features], 'lr': training_args.feature_lr, "name": "sam_features"},
-                # {'params': self._decoder.parameters(), 'lr': 1e-4, 'name': 'decoder'},
-                {'params': self._mlp.parameters(), 'lr': 5e-4, 'name': 'mlp'}
+                # {'params': [self._sam_features], 'lr': training_args.feature_lr, "name": "sam_features"},
+                {'params': self._mlp.parameters(), 'lr': 5e-4, 'name': 'mlp'},
+                {'params': self._classifier.parameters(), 'lr': 5e-4, 'name': 'classifier'},
                 ]
             self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
             # self.xyz_scheduler_args = get_expon_lr_func(lr_init=training_args.position_lr_init*self.spatial_lr_scale,
@@ -301,9 +306,9 @@ class GaussianModel:
     def construct_list_of_attributes(self):
         l = ['x', 'y', 'z', 'nx', 'ny', 'nz']
         # All channels except the 3 DC
-        if self.mode == "feature":
-            for i in range(self.sam_feature_dim):
-                l.append('sam_features_{}'.format(i))
+        # if self.mode == "feature":
+        #     for i in range(self.sam_feature_dim):
+        #         l.append('sam_features_{}'.format(i))
         for i in range(self._features_dc.shape[1]*self._features_dc.shape[2]):
             l.append('f_dc_{}'.format(i))
         for i in range(self._features_rest.shape[1]*self._features_rest.shape[2]):
@@ -344,13 +349,13 @@ class GaussianModel:
             self._mlp.cuda()
         else:
             assert False
-            
-    # def load_decoder(self, path):
-    #     if self.mode == "feature":
-    #         self._decoder.load_state_dict(torch.load(os.path.join(path, "decoder.pt")))
-    #         self._decoder.cuda()
-    #     else:
-    #         assert False
+    
+    def load_classifier(self, path):
+        if self.mode == "feature":
+            self._classifier.load_state_dict(torch.load(os.path.join(path, "classifier.pt")))
+            self._classifier.cuda()
+        else:
+            assert False
                     
     def save_deformation(self, path):
         torch.save(self._deformation.state_dict(),os.path.join(path, "deformation.pth"))
@@ -360,8 +365,8 @@ class GaussianModel:
     def save_mlp(self, path):
         torch.save(self._mlp.state_dict(), os.path.join(path, "mlp.pt"))
         
-    # def save_decoder(self, path):
-    #     torch.save(self._decoder.state_dict(), os.path.join(path, "decoder.pt"))
+    def save_classifier(self, path):
+        torch.save(self._classifier.state_dict(), os.path.join(path, "classifier.pt"))
         
     # def save_masked_ply(self, path, mask):
     #     mkdir_p(os.path.dirname(path))
@@ -389,8 +394,8 @@ class GaussianModel:
 
         xyz = self._xyz.detach().cpu().numpy()
         normals = np.zeros_like(xyz)
-        if self.mode == "feature":
-            sam_features =  self._sam_features.detach().contiguous().cpu().numpy()
+        # if self.mode == "feature":
+        #     sam_features =  self._sam_features.detach().contiguous().cpu().numpy()
         f_dc = self._features_dc.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
         f_rest = self._features_rest.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
         opacities = self._opacity.detach().cpu().numpy()
@@ -402,8 +407,8 @@ class GaussianModel:
         elements = np.empty(xyz.shape[0], dtype=dtype_full)
         if self.mode == "scene":
             attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1)
-        elif self.mode == "feature":
-            attributes = np.concatenate((xyz, normals, sam_features, f_dc, f_rest, opacities, scale, rotation), axis=1)
+        # elif self.mode == "feature":
+        #     attributes = np.concatenate((xyz, normals, sam_features, f_dc, f_rest, opacities, scale, rotation), axis=1)
         elements[:] = list(map(tuple, attributes))
         el = PlyElement.describe(elements, 'vertex')
         PlyData([el]).write(path)
@@ -421,13 +426,13 @@ class GaussianModel:
                         np.asarray(plydata.elements[0]["z"])),  axis=1)
         opacities = np.asarray(plydata.elements[0]["opacity"])[..., np.newaxis]
 
-        if self.mode == "feature":
-            sam_feature_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("sam_features_")]
-            sam_feature_names = sorted(sam_feature_names, key = lambda x: int(x.split('_')[-1]))
-            assert len(sam_feature_names) == self.sam_feature_dim
-            sam_features = np.zeros((xyz.shape[0], len(sam_feature_names)))
-            for idx, attr_name in enumerate(sam_feature_names):
-                sam_features[:, idx] = np.asarray(plydata.elements[0][attr_name])
+        # if self.mode == "feature":
+        #     sam_feature_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("sam_features_")]
+        #     sam_feature_names = sorted(sam_feature_names, key = lambda x: int(x.split('_')[-1]))
+        #     assert len(sam_feature_names) == self.sam_feature_dim
+        #     sam_features = np.zeros((xyz.shape[0], len(sam_feature_names)))
+        #     for idx, attr_name in enumerate(sam_feature_names):
+        #         sam_features[:, idx] = np.asarray(plydata.elements[0][attr_name])
         
         features_dc = np.zeros((xyz.shape[0], 3, 1))
         features_dc[:, 0, 0] = np.asarray(plydata.elements[0]["f_dc_0"])
@@ -456,8 +461,8 @@ class GaussianModel:
             rots[:, idx] = np.asarray(plydata.elements[0][attr_name])
 
         self._xyz = nn.Parameter(torch.tensor(xyz, dtype=torch.float, device="cuda").requires_grad_(True))
-        if self.mode == "feature":
-            self._sam_features = nn.Parameter(torch.tensor(sam_features, dtype=torch.float, device="cuda").contiguous().requires_grad_(True))
+        # if self.mode == "feature":
+        #     self._sam_features = nn.Parameter(torch.tensor(sam_features, dtype=torch.float, device="cuda").contiguous().requires_grad_(True))
         self._features_dc = nn.Parameter(torch.tensor(features_dc, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
         self._features_rest = nn.Parameter(torch.tensor(features_extra, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
         self._opacity = nn.Parameter(torch.tensor(opacities, dtype=torch.float, device="cuda").requires_grad_(True))
@@ -465,56 +470,56 @@ class GaussianModel:
         self._rotation = nn.Parameter(torch.tensor(rots, dtype=torch.float, device="cuda").requires_grad_(True))
         self.active_sh_degree = self.max_sh_degree
 
-    def create_from_4dgs(self, path):
-        plydata = PlyData.read(path)
+    # def create_from_4dgs(self, path):
+    #     plydata = PlyData.read(path)
 
-        xyz = np.stack((np.asarray(plydata.elements[0]["x"]),
-                        np.asarray(plydata.elements[0]["y"]),
-                        np.asarray(plydata.elements[0]["z"])),  axis=1)
-        opacities = np.asarray(plydata.elements[0]["opacity"])[..., np.newaxis]
+    #     xyz = np.stack((np.asarray(plydata.elements[0]["x"]),
+    #                     np.asarray(plydata.elements[0]["y"]),
+    #                     np.asarray(plydata.elements[0]["z"])),  axis=1)
+    #     opacities = np.asarray(plydata.elements[0]["opacity"])[..., np.newaxis]
 
-        sam_features = np.zeros((xyz.shape[0], self.sam_feature_dim))
-        self._sam_features = nn.Parameter(torch.tensor(sam_features, dtype=torch.float, device="cuda").contiguous().requires_grad_(True))
+    #     # sam_features = np.zeros((xyz.shape[0], self.sam_feature_dim))
+    #     # self._sam_features = nn.Parameter(torch.tensor(sam_features, dtype=torch.float, device="cuda").contiguous().requires_grad_(True))
         
-        features_dc = np.zeros((xyz.shape[0], 3, 1))
-        features_dc[:, 0, 0] = np.asarray(plydata.elements[0]["f_dc_0"])
-        features_dc[:, 1, 0] = np.asarray(plydata.elements[0]["f_dc_1"])
-        features_dc[:, 2, 0] = np.asarray(plydata.elements[0]["f_dc_2"])
+    #     features_dc = np.zeros((xyz.shape[0], 3, 1))
+    #     features_dc[:, 0, 0] = np.asarray(plydata.elements[0]["f_dc_0"])
+    #     features_dc[:, 1, 0] = np.asarray(plydata.elements[0]["f_dc_1"])
+    #     features_dc[:, 2, 0] = np.asarray(plydata.elements[0]["f_dc_2"])
 
-        extra_f_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("f_rest_")]
-        extra_f_names = sorted(extra_f_names, key = lambda x: int(x.split('_')[-1]))
-        assert len(extra_f_names)==3*(self.max_sh_degree + 1) ** 2 - 3
-        features_extra = np.zeros((xyz.shape[0], len(extra_f_names)))
-        for idx, attr_name in enumerate(extra_f_names):
-            features_extra[:, idx] = np.asarray(plydata.elements[0][attr_name])
-        # Reshape (P,F*SH_coeffs) to (P, F, SH_coeffs except DC)
-        features_extra = features_extra.reshape((features_extra.shape[0], 3, (self.max_sh_degree + 1) ** 2 - 1))
+    #     extra_f_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("f_rest_")]
+    #     extra_f_names = sorted(extra_f_names, key = lambda x: int(x.split('_')[-1]))
+    #     assert len(extra_f_names)==3*(self.max_sh_degree + 1) ** 2 - 3
+    #     features_extra = np.zeros((xyz.shape[0], len(extra_f_names)))
+    #     for idx, attr_name in enumerate(extra_f_names):
+    #         features_extra[:, idx] = np.asarray(plydata.elements[0][attr_name])
+    #     # Reshape (P,F*SH_coeffs) to (P, F, SH_coeffs except DC)
+    #     features_extra = features_extra.reshape((features_extra.shape[0], 3, (self.max_sh_degree + 1) ** 2 - 1))
 
-        scale_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("scale_")]
-        scale_names = sorted(scale_names, key = lambda x: int(x.split('_')[-1]))
-        scales = np.zeros((xyz.shape[0], len(scale_names)))
-        for idx, attr_name in enumerate(scale_names):
-            scales[:, idx] = np.asarray(plydata.elements[0][attr_name])
+    #     scale_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("scale_")]
+    #     scale_names = sorted(scale_names, key = lambda x: int(x.split('_')[-1]))
+    #     scales = np.zeros((xyz.shape[0], len(scale_names)))
+    #     for idx, attr_name in enumerate(scale_names):
+    #         scales[:, idx] = np.asarray(plydata.elements[0][attr_name])
 
-        rot_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("rot")]
-        rot_names = sorted(rot_names, key = lambda x: int(x.split('_')[-1]))
-        rots = np.zeros((xyz.shape[0], len(rot_names)))
-        for idx, attr_name in enumerate(rot_names):
-            rots[:, idx] = np.asarray(plydata.elements[0][attr_name])
+    #     rot_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("rot")]
+    #     rot_names = sorted(rot_names, key = lambda x: int(x.split('_')[-1]))
+    #     rots = np.zeros((xyz.shape[0], len(rot_names)))
+    #     for idx, attr_name in enumerate(rot_names):
+    #         rots[:, idx] = np.asarray(plydata.elements[0][attr_name])
 
-        self._xyz = torch.tensor(xyz, dtype=torch.float, device="cuda")
-        self._features_dc = torch.tensor(features_dc, dtype=torch.float, device="cuda").transpose(1, 2).contiguous()
-        self._features_rest = torch.tensor(features_extra, dtype=torch.float, device="cuda").transpose(1, 2).contiguous()
-        self._opacity = torch.tensor(opacities, dtype=torch.float, device="cuda")
-        self._scaling = torch.tensor(scales, dtype=torch.float, device="cuda")
-        self._rotation = torch.tensor(rots, dtype=torch.float, device="cuda")
-        # self._xyz = nn.Parameter(torch.tensor(xyz, dtype=torch.float, device="cuda").requires_grad_(True))
-        # self._features_dc = nn.Parameter(torch.tensor(features_dc, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
-        # self._features_rest = nn.Parameter(torch.tensor(features_extra, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
-        # self._opacity = nn.Parameter(torch.tensor(opacities, dtype=torch.float, device="cuda").requires_grad_(True))
-        # self._scaling = nn.Parameter(torch.tensor(scales, dtype=torch.float, device="cuda").requires_grad_(True))
-        # self._rotation = nn.Parameter(torch.tensor(rots, dtype=torch.float, device="cuda").requires_grad_(True))
-        self.active_sh_degree = self.max_sh_degree
+    #     self._xyz = torch.tensor(xyz, dtype=torch.float, device="cuda")
+    #     self._features_dc = torch.tensor(features_dc, dtype=torch.float, device="cuda").transpose(1, 2).contiguous()
+    #     self._features_rest = torch.tensor(features_extra, dtype=torch.float, device="cuda").transpose(1, 2).contiguous()
+    #     self._opacity = torch.tensor(opacities, dtype=torch.float, device="cuda")
+    #     self._scaling = torch.tensor(scales, dtype=torch.float, device="cuda")
+    #     self._rotation = torch.tensor(rots, dtype=torch.float, device="cuda")
+    #     # self._xyz = nn.Parameter(torch.tensor(xyz, dtype=torch.float, device="cuda").requires_grad_(True))
+    #     # self._features_dc = nn.Parameter(torch.tensor(features_dc, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
+    #     # self._features_rest = nn.Parameter(torch.tensor(features_extra, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
+    #     # self._opacity = nn.Parameter(torch.tensor(opacities, dtype=torch.float, device="cuda").requires_grad_(True))
+    #     # self._scaling = nn.Parameter(torch.tensor(scales, dtype=torch.float, device="cuda").requires_grad_(True))
+    #     # self._rotation = nn.Parameter(torch.tensor(rots, dtype=torch.float, device="cuda").requires_grad_(True))
+    #     self.active_sh_degree = self.max_sh_degree
 
     def replace_tensor_to_optimizer(self, tensor, name):
         optimizable_tensors = {}

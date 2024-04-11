@@ -405,6 +405,7 @@ def render_contrastive_feature(viewpoint_camera, pc : GaussianModel, pipe, bg_co
     scales_final = pc.scaling_activation(scales_final)
     rotations_final = pc.rotation_activation(rotations_final)
     opacity = pc.opacity_activation(opacity_final)
+    identity_encoding = pc._mlp(means3D_final, time)
 
     # sam_features = pc.get_sam_features
     # if mlp:
@@ -422,7 +423,7 @@ def render_contrastive_feature(viewpoint_camera, pc : GaussianModel, pipe, bg_co
         means3D = means3D_final,
         means2D = means2D,
         shs = None,
-        colors_precomp = pc.get_sam_features,
+        colors_precomp = identity_encoding,
         opacities = opacity,
         scales = scales_final,
         rotations = rotations_final,

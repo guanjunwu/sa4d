@@ -93,16 +93,16 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
     for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
         results = render_contrastive_feature(view, gaussians, pipeline, background)
         rendering_obj = results["render"]
-        logits = gaussians._mlp(rendering_obj)
+        logits = gaussians._classifier(rendering_obj)
         pred_obj = torch.argmax(logits,dim=0)
         pred_obj_mask = visualize_obj(pred_obj.cpu().numpy().astype(np.uint8))
-        # rgb_mask = feature_to_rgb(rendering_obj)
+        rgb_mask = feature_to_rgb(rendering_obj)
         
         pred_obj_mask_list.append(pred_obj_mask)
-        # rgb_mask_list.append(rgb_mask)
+        rgb_mask_list.append(rgb_mask)
 
     imageio.mimwrite(os.path.join(model_path, name, "ours_{}".format(iteration), 'video_mask.mp4'), pred_obj_mask_list, fps=30)
-    # imageio.mimwrite(os.path.join(model_path, name, "ours_{}".format(iteration), 'video_pca.mp4'), rgb_mask_list, fps=30)
+    imageio.mimwrite(os.path.join(model_path, name, "ours_{}".format(iteration), 'video_pca.mp4'), rgb_mask_list, fps=30)
 
 def render_sets(dataset : ModelParams, hyperparam, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool, skip_video: bool, mode: str):
     with torch.no_grad():

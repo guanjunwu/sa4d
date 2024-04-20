@@ -11,7 +11,7 @@
 import numpy as np
 import random
 import os, sys
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 # os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 import torch
 from random import randint

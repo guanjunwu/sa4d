@@ -9,7 +9,7 @@
 import torch
 from scene import Scene
 import os, sys
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 from tqdm import tqdm
 from os import makedirs
 from gaussian_renderer import render, render_contrastive_feature

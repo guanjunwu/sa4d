@@ -128,7 +128,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
     # time3 = get_time()
-    rendered_image, rendered_mask, radii = rasterizer(
+    rendered_image, rendered_mask, radii, _ = rasterizer(
         means3D = means3D_final,
         means2D = means2D,
         shs = shs_final,
@@ -240,7 +240,7 @@ def render_segmentation(viewpoint_camera, pc : GaussianModel, pipe, bg_color : t
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
     # time3 = get_time()
-    rendered_image, _, radii = rasterizer(
+    rendered_image, _, radii, _ = rasterizer(
         means3D = means3D_final,
         means2D = means2D,
         shs = shs_final,
@@ -405,7 +405,7 @@ def render_contrastive_feature(viewpoint_camera, pc : GaussianModel, pipe, bg_co
     scales_final = pc.scaling_activation(scales_final)
     rotations_final = pc.rotation_activation(rotations_final)
     opacity = pc.opacity_activation(opacity_final)
-    identity_encoding = pc._mlp(means3D_final, time)
+    identity_encoding = pc._mlp(means3D, time)
 
     # sam_features = pc.get_sam_features
     # if mlp:

@@ -65,20 +65,21 @@ def points_inside_convex_hull(point_cloud, mask, remove_outliers=True, outlier_f
         Q3 = np.percentile(masked_points, 75, axis=0)
         IQR = Q3 - Q1
         outlier_mask = (masked_points < (Q1 - outlier_factor * IQR)) | (masked_points > (Q3 + outlier_factor * IQR))
-        filtered_masked_points = masked_points[~np.any(outlier_mask, axis=1)]
+        # filtered_masked_points = masked_points[~np.any(outlier_mask, axis=1)]
     else:
         filtered_masked_points = masked_points
 
-    # Compute the Delaunay triangulation of the filtered masked points
-    delaunay = Delaunay(filtered_masked_points)
+    # # Compute the Delaunay triangulation of the filtered masked points
+    # delaunay = Delaunay(filtered_masked_points)
 
-    # Determine which points from the original point cloud are inside the convex hull
-    points_inside_hull_mask = delaunay.find_simplex(point_cloud.cpu().numpy()) >= 0
+    # # Determine which points from the original point cloud are inside the convex hull
+    # points_inside_hull_mask = delaunay.find_simplex(point_cloud.cpu().numpy()) >= 0
 
-    # Convert the numpy mask back to a torch tensor and return
-    inside_hull_tensor_mask = torch.tensor(points_inside_hull_mask, device='cuda')
+    # # Convert the numpy mask back to a torch tensor and return
+    # inside_hull_tensor_mask = torch.tensor(points_inside_hull_mask, device='cuda')
 
-    return inside_hull_tensor_mask
+    # return inside_hull_tensor_mask
+    return torch.from_numpy(~np.any(outlier_mask, axis=1)).to(mask)
 
 def get_combined_args(parser : ArgumentParser, model_path, target):
     cmdlne_string = ['--model_path', model_path]
@@ -150,11 +151,10 @@ def write_ply_with_color(save_path, points, colors, text=True):
     el = PlyElement.describe(vertex, 'vertex', comments=['vertices'])
     PlyData([el], text=text).write(save_path)
 
-#! DINO
 def statistical_filtering(pcd, precomputed_mask, max_time = 1):
     with torch.no_grad():
         filtered_mask = precomputed_mask.clone()
-        filtered_pcd = pcd.clone()
+        filtered_pcd = pcd.clone()[precomputed_mask]
         
         if type(filtered_pcd) == np.ndarray:
             filtered_pcd = torch.from_numpy(filtered_pcd).cuda()
@@ -177,7 +177,7 @@ def statistical_filtering(pcd, precomputed_mask, max_time = 1):
             mean, std = mean_nearest_k_distance.mean(), mean_nearest_k_distance.std()
             # mean_nearest_k_distance, std_nearest_k_distance = nearest_k_distance.mean(), nearest_k_distance.std()
             # print(std_nearest_k_distance, "std_nearest_k_distance")
-            print(std, "std_nearest_k_distance")
+            # print(std, "std_nearest_k_distance")
             mask = mean_nearest_k_distance <= mean + std
             # mask = nearest_k_distance.mean(dim = -1) < mean_nearest_k_distance + std_nearest_k_distance
 
@@ -186,7 +186,7 @@ def statistical_filtering(pcd, precomputed_mask, max_time = 1):
             filtered_mask[filtered_mask != 0] = mask
             max_time -= 1
         
-    return filtered_pcd, filtered_mask
+    return filtered_pcd, mask
 
 def ball_growing(full_pcd, seed_pcd, grow_iter = 1, thresh=None):
     with torch.no_grad():

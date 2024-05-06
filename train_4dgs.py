@@ -11,7 +11,7 @@
 import numpy as np
 import random
 import os, sys
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 # os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 import torch
 from random import randint
@@ -34,12 +34,12 @@ from time import time
 import copy
 
 to8b = lambda x : (255*np.clip(x.cpu().numpy(),0,1)).astype(np.uint8)
-
-try:
-    from torch.utils.tensorboard import SummaryWriter
-    TENSORBOARD_FOUND = True
-except ImportError:
-    TENSORBOARD_FOUND = False
+TENSORBOARD_FOUND = False
+# try:
+#     from torch.utils.tensorboard import SummaryWriter
+#     TENSORBOARD_FOUND = True
+# except ImportError:
+#     TENSORBOARD_FOUND = False
 def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_iterations, 
                          checkpoint_iterations, checkpoint, debug_from,
                          gaussians, scene, stage, tb_writer, train_iter,timer):

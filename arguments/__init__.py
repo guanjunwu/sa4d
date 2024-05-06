@@ -60,7 +60,7 @@ class ModelParams(ParamGroup):
         self.llffhold=8
         
         #! sam_features
-        self.feature_dim = 32
+        self.feature_dim = 16
         # self.init_from_3dgs_pcd = False
         self._feature_model_path = ""
         self.object_masks = False
@@ -122,7 +122,7 @@ class OptimizationParams(ParamGroup):
         self.zerostamp_init=False
         self.custom_sampler=None
         self.iterations = 30_000
-        self.feature_iterations = 10_000
+        self.feature_iterations = 5_000
         self.coarse_iterations = 3000
         self.position_lr_init = 0.00016
         self.position_lr_final = 0.0000016

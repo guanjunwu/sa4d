@@ -1,3 +1,7 @@
+ModelParams = dict(
+    feature_dim = 32,
+)
+
 ModelHiddenParams = dict(
     kplanes_config = {
      'grid_dimensions': 2,
@@ -26,4 +30,5 @@ OptimizationParams = dict(
     # opacity_threshold_fine_init = 0.005,
     # opacity_threshold_fine_after = 0.005,
     # pruning_interval = 2000
+    feature_iterations = 5_000,
 )

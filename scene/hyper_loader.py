@@ -44,7 +44,7 @@ class Load_hyper_data(Dataset):
                 need_gt_masks = False,
                 sam_mask_downsample = None,
                 ):
-        self.object_folder = os.path.join(datadir, "object_mask") if object_masks else None
+        self.object_folder = os.path.join(datadir, "pseudo_label/object_mask") if object_masks else None
         self.num_classes = 0
         # self.sam_mask_downsample = sam_mask_downsample
         

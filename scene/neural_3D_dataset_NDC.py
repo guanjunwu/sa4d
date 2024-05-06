@@ -10,7 +10,12 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import transforms as T
 from tqdm import tqdm
-from utils.general_utils import PILtoTorch
+import sys
+sys.path.append('./utils')
+from general_utils import PILtoTorch
+# from utils.general_utils import PILtoTorch
+from PIL import ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 def normalize(v):
@@ -226,9 +231,11 @@ class Neural3D_NDC_Dataset(Dataset):
         eval_index=0,
         sphere_scale=1.0,
         object_masks=False,
+        gt_mask=False,
         mode = "scene"
     ):
         self.object_masks = object_masks
+        self.gt_mask = gt_mask
         self.mode = mode
         self.num_classes = 0
         
@@ -269,7 +276,8 @@ class Neural3D_NDC_Dataset(Dataset):
         poses_arr = np.load(os.path.join(self.root_dir, "poses_bounds.npy"))
         poses = poses_arr[:, :-2].reshape([-1, 3, 5])  # (N_cams, 3, 5)
         self.near_fars = poses_arr[:, -2:]
-        videos = glob.glob(os.path.join(self.root_dir, "cam*.mp4"))
+        # videos = glob.glob(os.path.join(self.root_dir, "cam*.mp4"))
+        videos = glob.glob(os.path.join(self.root_dir, "cam*"))
         videos = sorted(videos)
         # breakpoint()
         assert len(videos) == poses_arr.shape[0]
@@ -315,7 +323,7 @@ class Neural3D_NDC_Dataset(Dataset):
         image_poses = []
         image_times = []
         objects_paths = [] if self.object_masks else None
-        gt_mask_paths = [] if self.split == "test" else None
+        gt_mask_paths = [] if self.split == "test" and self.gt_mask else None
         N_cams = 0
         N_time = 0
         countss = 300
@@ -326,13 +334,15 @@ class Neural3D_NDC_Dataset(Dataset):
             else:
                 if split == "test":
                     continue
-            if split == "train" and self.mode == "feature" and index != 15: continue
+            # if split == "train" and self.mode == "feature" and index != 8: continue
             
             N_cams +=1
             count = 0
-            video_images_path = video_path.split('.')[0]
-            image_path = os.path.join(video_images_path,"images")
+            # video_images_path = video_path.split('.')[0]
+            video_images_path = video_path[:-4]
+            image_path = os.path.join(video_path,"images")
             video_frames = cv2.VideoCapture(video_path)
+            # print(video_images_path)
             if not os.path.exists(image_path):
                 print(f"no images saved in {image_path}, extract images from video.")
                 os.makedirs(image_path)
@@ -354,9 +364,9 @@ class Neural3D_NDC_Dataset(Dataset):
                     else:
                         break
             
-            # dino_features_dict = torch.load(os.path.join(video_path.split('.')[0], "features.pt"), map_location="cpu") if self.need_features else None
-            object_folder = os.path.join(video_path.split('.')[0], "object_mask") if self.object_masks else None
-            gt_mask_folder = os.path.join(video_path.split('.')[0], "gt_mask", "man") if self.split == "test" else None
+            # object_folder = os.path.join(video_path.split('.')[0], "object_mask") if self.object_masks else None
+            object_folder = os.path.join(video_path.split('.')[0], "mask/Annotations") if self.object_masks else None
+            gt_mask_folder = os.path.join(video_path.split('.')[0], "gt_mask", "man") if self.split == "test" and self.gt_mask else None
             images_path = os.listdir(image_path)
             images_path.sort()
             this_count = 0

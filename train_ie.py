@@ -11,7 +11,7 @@
 import numpy as np
 import random
 import os, sys
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 # os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 import torch
 from random import randint
@@ -113,15 +113,15 @@ def training(dataset, hyper, opt, pipe, mode="feature", testing_iterations=None,
         loss_obj = loss_obj / torch.log(torch.tensor(num_classes))  # normalize to (0,1)
         
         loss_obj_3d = None
-        if iteration % opt.reg3d_interval == 0:
-            # regularize at certain intervals
-            identity_encoding = gaussians._mlp(render_pkg["deformed_points"], torch.tensor(viewpoint_cam.time).cuda().repeat(gaussians.get_xyz.shape[0], 1))
-            logits3d = gaussians._classifier(identity_encoding.unsqueeze(1).permute(2, 0, 1))
-            prob_obj3d = torch.softmax(logits3d,dim=0).squeeze().permute(1,0)
-            loss_obj_3d = loss_cls_3d(render_pkg["deformed_points"].detach(), prob_obj3d, opt.reg3d_k, opt.reg3d_lambda_val, opt.reg3d_max_points, opt.reg3d_sample_size)
-            loss = loss_obj + loss_obj_3d
-        else:
-            loss = loss_obj
+        # if iteration % opt.reg3d_interval == 0:
+        # regularize at certain intervals
+        identity_encoding = gaussians._mlp(gaussians.get_xyz, torch.tensor(viewpoint_cam.time).cuda().repeat(gaussians.get_xyz.shape[0], 1))
+        logits3d = gaussians._classifier(identity_encoding.unsqueeze(1).permute(2, 0, 1))
+        prob_obj3d = torch.softmax(logits3d,dim=0).squeeze().permute(1,0)
+        loss_obj_3d = loss_cls_3d(render_pkg["deformed_points"].detach(), prob_obj3d, opt.reg3d_k, opt.reg3d_lambda_val, opt.reg3d_max_points, opt.reg3d_sample_size)
+        loss = loss_obj + loss_obj_3d
+        # else:
+        #     loss = loss_obj
         
         loss.backward()
         iter_end.record()
@@ -158,8 +158,9 @@ if __name__ == "__main__":
     parser.add_argument("--start_checkpoint", type=str, default = None)
     parser.add_argument("--configs", type=str, default = "")
     parser.add_argument("--mode", type=str, default="feature")
+    # parser.add_argument("--gpu", type=int, default=1)
     args = get_combined_args(parser, target_cfg='scene')
-    
+    # os.environ["CUDA_VISIBLE_DEVICES"] = f"{args.gpu}"
     args.save_iterations.append(args.iterations)
     if args.configs:
         import mmcv

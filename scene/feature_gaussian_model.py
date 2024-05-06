@@ -26,6 +26,8 @@ from utils.point_utils import addpoint, combine_pointcloud, downsample_point_clo
 from scene.deformation import deform_network
 from scene.segnet import SegNet
 from scene.regulation import compute_plane_smoothness
+import sys
+import pathlib
 
 class GaussianModel:
 
@@ -83,7 +85,7 @@ class GaussianModel:
             #     torch.nn.LeakyReLU(),
             #     torch.nn.Linear(64, feature_dim, bias=True)
             # ).cuda()
-            self._mlp = SegNet(args).cuda()
+            self._mlp = SegNet(args, feature_dim).cuda()
             self._classifier = torch.nn.Conv2d(feature_dim, 256, kernel_size=1).cuda()
             # print("Feature Dimension: ", feature_dim)
 
@@ -180,7 +182,53 @@ class GaussianModel:
         self.xyz_gradient_accum = xyz_gradient_accum
         self.denom = denom
         self.optimizer.load_state_dict(opt_dict)
+    
+    def create_mask_table(self, num_sample):
+        self._mask_table = torch.zeros((num_sample, self._xyz.shape[0])).cuda()
+        # self._time_map = torch.linspace(0, 1, 300)
+        self._time_map = torch.zeros((num_sample))
+        for i in range(num_sample):
+            self._time_map[i] = i / 300
+        
+    def save_mask_table(self, path):
+        os.makedirs(path, exist_ok=True)
+        
+        table = {
+            "mask_table": self._mask_table,
+            "time_map": self._time_map,
+        }
+        torch.save(table, os.path.join(path, "mask_table.pt"))
+        
+    def load_mask_table(self, path):
+        table = torch.load(os.path.join(path, "mask_table.pt"), map_location="cpu")
+        self._mask_table = table["mask_table"].cuda()
+        self._time_map = table["time_map"]
+        
+    def save_seg_gs(self, path):
+        os.makedirs(path, exist_ok=True)
+        
+        mask = self._mask_table.any(dim=0)
+        xyz = self._xyz[mask].detach().cpu().numpy()
+        normals = np.zeros_like(xyz)
+        f_dc = self._features_dc[mask].detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        f_rest = self._features_rest[mask].detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        opacities = self._opacity[mask].detach().cpu().numpy()
+        scale = self._scaling[mask].detach().cpu().numpy()
+        rotation = self._rotation[mask].detach().cpu().numpy()
+        
+        dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
 
+        elements = np.empty(xyz.shape[0], dtype=dtype_full)
+        attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1)
+        elements[:] = list(map(tuple, attributes))
+        el = PlyElement.describe(elements, 'vertex')
+        PlyData([el]).write(os.path.join(path, "segment_objects.ply"))
+    
+    # def composite(self, target_dir):
+    #     table_dict = torch.load(os.path.join(target_dir, "mask_table.pt"))
+    #     self.mask_table = table_dict["mask_table"]
+    #     self.   
+        
     @property
     def get_scaling(self):
         return self.scaling_activation(self._scaling)
@@ -279,7 +327,7 @@ class GaussianModel:
             l = [
                 # {'params': [self._sam_features], 'lr': training_args.feature_lr, "name": "sam_features"},
                 {'params': self._mlp.parameters(), 'lr': 5e-4, 'name': 'mlp'},
-                {'params': self._classifier.parameters(), 'lr': 5e-4, 'name': 'classifier'},
+                # {'params': self._classifier.parameters(), 'lr': 5e-4, 'name': 'classifier'},
                 ]
             self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
             # self.xyz_scheduler_args = get_expon_lr_func(lr_init=training_args.position_lr_init*self.spatial_lr_scale,

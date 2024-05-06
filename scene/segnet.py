@@ -6,19 +6,25 @@ import torch.nn.init as init
 import sys
 
 class SegNet(nn.Module):
-    def __init__(self, args):
-        super(SegNet, self).__init__()
+    def __init__(self, args, feature_dim):
+        super().__init__()
         timebase_pe = args.timebase_pe
         posbase_pe= args.posebase_pe
         self.input_ch = (3 + (3 * posbase_pe) * 2) + (1 + (1 * timebase_pe) * 2)
-        self.output_ch = 32
+        self.output_ch = feature_dim
+        print("ID Encoding Dimension: ", feature_dim)
         self.W = 256
         self.D = 4
+        # self.mlp = nn.ModuleList(
+        #     [nn.ReLU(), nn.Linear(self.input_ch, self.W)] +
+        #     sum([[nn.ReLU(), nn.Linear(self.W, self.W)] for i in range(self.D-2)], []) +
+        #     [nn.ReLU(), nn.Linear(self.W, self.output_ch)] 
+        #     # [nn.Sigmoid()]
+        # )
         self.mlp = nn.ModuleList(
-            [nn.ReLU(), nn.Linear(self.input_ch, self.W)] +
-            sum([[nn.ReLU(), nn.Linear(self.W, self.W)] for i in range(self.D-2)], []) +
-            [nn.ReLU(), nn.Linear(self.W, self.output_ch)] 
-            # [nn.Sigmoid()]
+            [nn.Linear(self.input_ch, self.W), nn.ReLU()] +
+            sum([[nn.Linear(self.W, self.W), nn.ReLU()] for i in range(self.D-2)], []) +
+            [nn.Linear(self.W, self.output_ch)]
         )
         self.register_buffer('time_poc', torch.FloatTensor([(2**i) for i in range(timebase_pe)]))
         self.register_buffer('pos_poc', torch.FloatTensor([(2**i) for i in range(posbase_pe)]))
@@ -32,6 +38,7 @@ class SegNet(nn.Module):
         for i, l in enumerate(self.mlp):
             h = self.mlp[i](h)
         
+        # h = torch.sigmoid(h)
         return h
 
 def initialize_weights(m):

@@ -128,7 +128,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
     # time3 = get_time()
-    rendered_image, rendered_mask, radii, _ = rasterizer(
+    rendered_image, rendered_mask, radii, points2d = rasterizer(
         means3D = means3D_final,
         means2D = means2D,
         shs = shs_final,
@@ -148,7 +148,8 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             "viewspace_points": screenspace_points,
             "visibility_filter" : radii > 0,
             "radii": radii,
-            "deformed_points": means3D_final}
+            "deformed_points": means3D_final,
+            "points2d": points2d}
 
 def render_segmentation(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, mask, scaling_modifier = 1.0, override_color = None):
     """
@@ -240,7 +241,7 @@ def render_segmentation(viewpoint_camera, pc : GaussianModel, pipe, bg_color : t
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
     # time3 = get_time()
-    rendered_image, _, radii, _ = rasterizer(
+    rendered_image, _, radii, points2d = rasterizer(
         means3D = means3D_final,
         means2D = means2D,
         shs = shs_final,
@@ -258,7 +259,8 @@ def render_segmentation(viewpoint_camera, pc : GaussianModel, pipe, bg_color : t
     return {"render": rendered_image,
             "viewspace_points": screenspace_points,
             "visibility_filter" : radii > 0,
-            "radii": radii}    
+            "radii": radii,
+            "points2d": points2d}    
 
 def render_mask(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, precomputed_mask = None):
     """

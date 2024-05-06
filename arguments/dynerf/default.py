@@ -1,3 +1,7 @@
+ModelParams = dict(
+    feature_dim = 32,
+)
+
 ModelHiddenParams = dict(
     kplanes_config = {
      'grid_dimensions': 2,

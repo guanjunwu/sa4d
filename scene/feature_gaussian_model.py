@@ -188,7 +188,7 @@ class GaussianModel:
         # self._time_map = torch.linspace(0, 1, 300)
         self._time_map = torch.zeros((num_sample))
         for i in range(num_sample):
-            self._time_map[i] = i / 300
+            self._time_map[i] = i / num_sample
         
     def save_mask_table(self, path):
         os.makedirs(path, exist_ok=True)
@@ -327,13 +327,13 @@ class GaussianModel:
             l = [
                 # {'params': [self._sam_features], 'lr': training_args.feature_lr, "name": "sam_features"},
                 {'params': self._mlp.parameters(), 'lr': 5e-4, 'name': 'mlp'},
-                # {'params': self._classifier.parameters(), 'lr': 5e-4, 'name': 'classifier'},
+                {'params': self._classifier.parameters(), 'lr': 5e-4, 'name': 'classifier'},
                 ]
-            self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
-            # self.xyz_scheduler_args = get_expon_lr_func(lr_init=training_args.position_lr_init*self.spatial_lr_scale,
-            #                                         lr_final=training_args.position_lr_final*self.spatial_lr_scale,
-            #                                         lr_delay_mult=training_args.position_lr_delay_mult,
-            #                                         max_steps=training_args.position_lr_max_steps)
+            self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)     
+            self.mlp_scheduler_args = get_expon_lr_func(lr_init=5e-4*self.spatial_lr_scale,
+                                                    lr_final=5e-5*self.spatial_lr_scale,
+                                                    lr_delay_mult=training_args.position_lr_delay_mult,
+                                                    max_steps=10000)
 
     def update_learning_rate(self, iteration):
         ''' Learning rate scheduling per step '''
@@ -349,7 +349,10 @@ class GaussianModel:
             elif param_group["name"] == "deformation":
                 lr = self.deformation_scheduler_args(iteration)
                 param_group['lr'] = lr
-                # return lr                
+                # return lr             
+            elif param_group["name"] == "mlp":
+                lr = self.mlp_scheduler_args(iteration)
+                param_group['lr'] = lr
 
     def construct_list_of_attributes(self):
         l = ['x', 'y', 'z', 'nx', 'ny', 'nz']

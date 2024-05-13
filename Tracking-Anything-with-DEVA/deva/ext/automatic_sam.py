@@ -37,6 +37,7 @@ def get_sam_model(config: Dict, device: str) -> SamAutomaticMaskGenerator:
         sam = sam_model_registry[SAM_ENCODER_VERSION](checkpoint=SAM_CHECKPOINT_PATH).to(
             device=device)
         auto_sam = SamAutomaticMaskGenerator(sam,
+                                            #  points_per_batch=2,
                                              points_per_side=config['SAM_NUM_POINTS_PER_SIDE'],
                                              points_per_batch=config['SAM_NUM_POINTS_PER_BATCH'],
                                              pred_iou_thresh=config['SAM_PRED_IOU_THRESHOLD'],

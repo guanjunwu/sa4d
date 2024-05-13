@@ -33,6 +33,8 @@ else
   echo "Cannot recognize this dataset type!"
 fi
 
+# echo $img_path
+
 # colored mask for visualization check
 python demo/demo_automatic.py \
   --chunk_size 4 \

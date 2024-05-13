@@ -52,6 +52,7 @@ namespace CudaRasterizer
 			float* out_color,
 			float* out_mask,
 			int* radii = nullptr,
+			float* means2d = nullptr,
 			bool debug = false);
 
 		static void backward(
@@ -108,6 +109,7 @@ namespace CudaRasterizer
 			const bool prefiltered,
 			float* out_mask,
 			int* radii = nullptr,
+			float* means2d = nullptr,
 			bool debug = false);
 
 		static void mask_backward(

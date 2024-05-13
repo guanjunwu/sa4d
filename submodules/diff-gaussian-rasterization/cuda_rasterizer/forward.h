@@ -38,6 +38,7 @@ namespace FORWARD
 		const float focal_x, float focal_y,
 		const float tan_fovx, float tan_fovy,
 		int* radii,
+		float* means2D_return,
 		float2* points_xy_image,
 		float* depths,
 		float* cov3Ds,

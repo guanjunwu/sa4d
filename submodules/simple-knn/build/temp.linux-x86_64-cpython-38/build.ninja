@@ -23,9 +23,9 @@ rule cuda_compile
 
 
 
-build /data3/sxj/Segment-Anything-in-4D/submodules/simple-knn/build/temp.linux-x86_64-cpython-38/ext.o: compile /data3/sxj/Segment-Anything-in-4D/submodules/simple-knn/ext.cpp
-build /data3/sxj/Segment-Anything-in-4D/submodules/simple-knn/build/temp.linux-x86_64-cpython-38/simple_knn.o: cuda_compile /data3/sxj/Segment-Anything-in-4D/submodules/simple-knn/simple_knn.cu
-build /data3/sxj/Segment-Anything-in-4D/submodules/simple-knn/build/temp.linux-x86_64-cpython-38/spatial.o: cuda_compile /data3/sxj/Segment-Anything-in-4D/submodules/simple-knn/spatial.cu
+build /data/sxj/data/Segment-Anything-in-4D/submodules/simple-knn/build/temp.linux-x86_64-cpython-38/ext.o: compile /data/sxj/data/Segment-Anything-in-4D/submodules/simple-knn/ext.cpp
+build /data/sxj/data/Segment-Anything-in-4D/submodules/simple-knn/build/temp.linux-x86_64-cpython-38/simple_knn.o: cuda_compile /data/sxj/data/Segment-Anything-in-4D/submodules/simple-knn/simple_knn.cu
+build /data/sxj/data/Segment-Anything-in-4D/submodules/simple-knn/build/temp.linux-x86_64-cpython-38/spatial.o: cuda_compile /data/sxj/data/Segment-Anything-in-4D/submodules/simple-knn/spatial.cu
 
 
 

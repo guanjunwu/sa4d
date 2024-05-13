@@ -25,7 +25,7 @@ class Scene:
 
     gaussians : GaussianModel
 
-    def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=None, mode="scene", shuffle=True, resolution_scales=[1.0], load_coarse=None):
+    def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=None, mode="scene", shuffle=True, resolution_scales=[1.0], load_coarse=None, cam_view=None):
         """
         :param path: Path to colmap scene main folder.
         """
@@ -58,7 +58,7 @@ class Scene:
             scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.eval, args.extension, need_features = args.need_features, need_masks = args.need_masks)
             dataset_type="blender"
         elif os.path.exists(os.path.join(args.source_path, "poses_bounds.npy")):
-            scene_info = sceneLoadTypeCallbacks["dynerf"](args.source_path, args.white_background, args.eval, object_masks=args.object_masks, mode=mode)
+            scene_info = sceneLoadTypeCallbacks["dynerf"](args.source_path, args.white_background, args.eval, object_masks=args.object_masks, mode=mode, cam_view=cam_view)
             dataset_type="dynerf"
         elif os.path.exists(os.path.join(args.source_path,"dataset.json")):
             scene_info = sceneLoadTypeCallbacks["nerfies"](args.source_path, False, args.eval, object_masks=args.object_masks, need_gt_masks=args.need_gt_masks)
@@ -71,6 +71,7 @@ class Scene:
             
         self.maxtime = scene_info.maxtime
         self.dataset_type = dataset_type
+        self.cam_view = cam_view
         self.cameras_extent = scene_info.nerf_normalization["radius"]
         
         print("Loading Training Cameras")
@@ -96,8 +97,12 @@ class Scene:
                 self.gaussians.load_ply(os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter), "scene_point_cloud.ply"))
                 if mode == "feature":
                     # self.gaussians.load_ply(os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter), "feature_point_cloud.ply"))
-                    self.gaussians.load_mlp(os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter)))
-                    # self.gaussians.load_classifier(os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter)))
+                    if self.dataset_type == "dynerf":
+                        self.gaussians.load_mlp(os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter), cam_view))
+                        self.gaussians.load_classifier(os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter), cam_view))
+                    else:
+                        self.gaussians.load_mlp(os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter)))
+                        self.gaussians.load_classifier(os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter)))
                     
                 self.gaussians.load_model(os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter)))
             else:
@@ -122,10 +127,13 @@ class Scene:
             self.gaussians.save_ply(os.path.join(point_cloud_path, "scene_point_cloud.ply"))
             self.gaussians.save_deformation(point_cloud_path)
         elif self.mode == "feature":
-            point_cloud_path = os.path.join(self.model_path, "point_cloud/iteration_{}".format(iteration))
+            if self.dataset_type == "dynerf":
+                point_cloud_path = os.path.join(self.model_path, "point_cloud/iteration_{}".format(iteration), self.cam_view)
+            else:
+                point_cloud_path = os.path.join(self.model_path, "point_cloud/iteration_{}".format(iteration))
             # self.gaussians.save_ply(os.path.join(point_cloud_path, "feature_point_cloud.ply"))
             self.gaussians.save_mlp(os.path.join(point_cloud_path))
-            # self.gaussians.save_classifier(os.path.join(point_cloud_path))
+            self.gaussians.save_classifier(os.path.join(point_cloud_path))
                     
     def getTrainCameras(self, scale=1.0):
         return self.train_camera

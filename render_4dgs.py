@@ -8,12 +8,12 @@
 #
 # For inquiries contact  george.drettakis@inria.fr
 #
+import os, sys
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 import imageio
 import numpy as np
 import torch
 from scene import Scene
-import os, sys
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import cv2
 from tqdm import tqdm
 from os import makedirs

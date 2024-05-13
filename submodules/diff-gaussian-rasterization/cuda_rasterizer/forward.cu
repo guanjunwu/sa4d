@@ -170,6 +170,7 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	const float tan_fovx, float tan_fovy,
 	const float focal_x, float focal_y,
 	int* radii,
+	float* means2d,
 	float2* points_xy_image,
 	float* depths,
 	float* cov3Ds,
@@ -186,6 +187,8 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	// Initialize radius and touched tiles to 0. If this isn't changed,
 	// this Gaussian will not be processed further.
 	radii[idx] = 0;
+	means2d[2*idx] = -1;
+	means2d[2*idx+1] = -1;
 	tiles_touched[idx] = 0;
 
 	// Perform near culling, quit if outside.
@@ -249,6 +252,8 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	// Store some useful helper data for the next steps.
 	depths[idx] = p_view.z;
 	radii[idx] = my_radius;
+	means2d[2*idx] = point_image.x;
+	means2d[2*idx+1] = point_image.y;
 	points_xy_image[idx] = point_image;
 	// Inverse 2D covariance and opacity neatly pack into one float4
 	conic_opacity[idx] = { conic.x, conic.y, conic.z, opacities[idx] };
@@ -568,6 +573,7 @@ void FORWARD::preprocess(int P, int D, int M,
 	const float focal_x, float focal_y,
 	const float tan_fovx, float tan_fovy,
 	int* radii,
+	float* means2D_return,
 	float2* means2D,
 	float* depths,
 	float* cov3Ds,
@@ -595,6 +601,7 @@ void FORWARD::preprocess(int P, int D, int M,
 		tan_fovx, tan_fovy,
 		focal_x, focal_y,
 		radii,
+		means2D_return,
 		means2D,
 		depths,
 		cov3Ds,

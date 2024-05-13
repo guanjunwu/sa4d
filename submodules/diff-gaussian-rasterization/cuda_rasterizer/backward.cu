@@ -563,7 +563,6 @@ renderCUDA(
 	}
 }
 
-
 template <uint32_t C>
 __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
 render_maskCUDA(

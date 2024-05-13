@@ -6,10 +6,10 @@
 # Modified from codes in Gaussian-Splatting 
 # GRAPHDECO research group, https://team.inria.fr/graphdeco
 
+import os, sys
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import torch
 from scene import Scene
-import os, sys
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 from tqdm import tqdm
 from os import makedirs
 from gaussian_renderer import render, render_contrastive_feature
@@ -89,25 +89,25 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
     # makedirs(pred_obj_path, exist_ok=True)
 
     pred_obj_mask_list = []
-    # rgb_mask_list = []
+    # pca_list = []
     for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
         results = render_contrastive_feature(view, gaussians, pipeline, background)
         rendering_obj = results["render"]
         logits = gaussians._classifier(rendering_obj)
         pred_obj = torch.argmax(logits,dim=0)
         pred_obj_mask = visualize_obj(pred_obj.cpu().numpy().astype(np.uint8))
-        # rgb_mask = feature_to_rgb(rendering_obj)
+        # pca = feature_to_rgb(rendering_obj)
         
         pred_obj_mask_list.append(pred_obj_mask)
-        # rgb_mask_list.append(rgb_mask)
+        # pca_list.append(pca)
 
     imageio.mimwrite(os.path.join(model_path, name, "ours_{}".format(iteration), 'video_mask.mp4'), pred_obj_mask_list, fps=30)
-    # imageio.mimwrite(os.path.join(model_path, name, "ours_{}".format(iteration), 'video_pca.mp4'), rgb_mask_list, fps=30)
+    # imageio.mimwrite(os.path.join(model_path, name, "ours_{}".format(iteration), 'video_pca.mp4'), pca_list, fps=30)
 
-def render_sets(dataset : ModelParams, hyperparam, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool, skip_video: bool, mode: str):
+def render_sets(dataset : ModelParams, hyperparam, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool, skip_video: bool, mode: str, cam_view: str):
     with torch.no_grad():
         gaussians = GaussianModel(dataset.sh_degree, mode, hyperparam, dataset.feature_dim)
-        scene = Scene(dataset, gaussians, load_iteration=iteration, mode=mode, shuffle=False)
+        scene = Scene(dataset, gaussians, load_iteration=iteration, mode=mode, shuffle=False, cam_view=cam_view)
         # cam_type = scene.dataset_type
         num_classes = 256
         print("Num classes: ",num_classes)
@@ -135,6 +135,7 @@ if __name__ == "__main__":
     parser.add_argument("--skip_video", action="store_true")
     parser.add_argument("--configs", type=str)
     parser.add_argument("--mode", type=str, default="feature")
+    parser.add_argument("--cam_view", type=str, default='cam16')
     args = get_combined_args(parser, target_cfg="feature")
     print("Rendering " , args.model_path)
     if args.configs:
@@ -145,4 +146,4 @@ if __name__ == "__main__":
     # Initialize system state (RNG)
     safe_state(args.quiet)
 
-    render_sets(model.extract(args), hyperparam.extract(args), args.iteration, pipeline.extract(args), args.skip_train, args.skip_test, args.skip_video, args.mode)
+    render_sets(model.extract(args), hyperparam.extract(args), args.iteration, pipeline.extract(args), args.skip_train, args.skip_test, args.skip_video, args.mode, args.cam_view)

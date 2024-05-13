@@ -151,7 +151,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             "deformed_points": means3D_final,
             "points2d": points2d}
 
-def render_segmentation(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, mask, scaling_modifier = 1.0, override_color = None):
+def render_segmentation(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, mask, t=None, scaling_modifier = 1.0, override_color = None):
     """
     Render the scene. 
     
@@ -182,7 +182,10 @@ def render_segmentation(viewpoint_camera, pc : GaussianModel, pipe, bg_color : t
         prefiltered=False,
         debug=pipe.debug
     )
-    time = torch.tensor(viewpoint_camera.time).to(means3D.device).repeat(means3D.shape[0],1)
+    if t:
+        time = torch.tensor(t).to(means3D.device).repeat(means3D.shape[0],1)
+    else:
+        time = torch.tensor(viewpoint_camera.time).to(means3D.device).repeat(means3D.shape[0],1)
         
 
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)

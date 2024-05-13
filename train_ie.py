@@ -11,7 +11,7 @@
 import numpy as np
 import random
 import os, sys
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 # os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 import torch
 from random import randint
@@ -35,11 +35,11 @@ def setup_seed(seed):
      random.seed(seed)
      torch.backends.cudnn.deterministic = True
      
-def training(dataset, hyper, opt, pipe, mode="feature", testing_iterations=None, saving_iterations=None, checkpoint_iterations=None, checkpoint=None, debug_from=None):    
+def training(dataset, hyper, opt, pipe, mode="feature", testing_iterations=None, saving_iterations=None, checkpoint_iterations=None, checkpoint=None, debug_from=None, cam_view=None):    
     dataset.object_masks = True
     
     gaussians = GaussianModel(dataset.sh_degree, mode, hyper, dataset.feature_dim)
-    scene = Scene(dataset, gaussians, mode=mode)
+    scene = Scene(dataset, gaussians, mode=mode, cam_view=cam_view)
     gaussians.training_setup(opt)
     num_classes = 256
     print("Num classes: ",num_classes)
@@ -158,6 +158,7 @@ if __name__ == "__main__":
     parser.add_argument("--start_checkpoint", type=str, default = None)
     parser.add_argument("--configs", type=str, default = "")
     parser.add_argument("--mode", type=str, default="feature")
+    parser.add_argument("--cam_view", type=str, default='cam16')
     # parser.add_argument("--gpu", type=int, default=1)
     args = get_combined_args(parser, target_cfg='scene')
     # os.environ["CUDA_VISIBLE_DEVICES"] = f"{args.gpu}"
@@ -179,7 +180,7 @@ if __name__ == "__main__":
     with open(os.path.join(args.model_path, "feature_cfg_args"), 'w') as cfg_log_f:
         cfg_log_f.write(str(Namespace(**vars(args))))
 
-    training(lp.extract(args), hp.extract(args), op.extract(args), pp.extract(args), args.mode)
+    training(lp.extract(args), hp.extract(args), op.extract(args), pp.extract(args), args.mode, cam_view=args.cam_view)
 
     # All done
     print("\nTraining complete.")

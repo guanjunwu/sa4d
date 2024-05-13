@@ -14,8 +14,8 @@ import sys
 sys.path.append('./utils')
 from general_utils import PILtoTorch
 # from utils.general_utils import PILtoTorch
-from PIL import ImageFile
-ImageFile.LOAD_TRUNCATED_IMAGES = True
+# from PIL import ImageFile
+# ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 def normalize(v):
@@ -232,12 +232,14 @@ class Neural3D_NDC_Dataset(Dataset):
         sphere_scale=1.0,
         object_masks=False,
         gt_mask=False,
-        mode = "scene"
+        mode = "scene",
+        cam_view = None
     ):
         self.object_masks = object_masks
         self.gt_mask = gt_mask
         self.mode = mode
         self.num_classes = 0
+        self.cam_view = cam_view
         
         self.img_wh = (
             int(1352 / downsample),
@@ -276,8 +278,9 @@ class Neural3D_NDC_Dataset(Dataset):
         poses_arr = np.load(os.path.join(self.root_dir, "poses_bounds.npy"))
         poses = poses_arr[:, :-2].reshape([-1, 3, 5])  # (N_cams, 3, 5)
         self.near_fars = poses_arr[:, -2:]
-        # videos = glob.glob(os.path.join(self.root_dir, "cam*.mp4"))
-        videos = glob.glob(os.path.join(self.root_dir, "cam*"))
+        videos = glob.glob(os.path.join(self.root_dir, "cam*.mp4"))
+        if len(videos) == 0:
+            videos = glob.glob(os.path.join(self.root_dir, "cam*"))
         videos = sorted(videos)
         # breakpoint()
         assert len(videos) == poses_arr.shape[0]
@@ -299,7 +302,7 @@ class Neural3D_NDC_Dataset(Dataset):
 
         # Sample N_views poses for validation - NeRF-like camera trajectory.
         N_views = 300
-        self.val_poses = get_spiral(poses, self.near_fars, N_views=N_views)
+        self.val_poses = get_spiral(poses, self.near_fars, rads_scale=0.5, N_views=N_views)
         # self.val_poses = self.directions
         W, H = self.img_wh
         poses_i_train = []
@@ -334,13 +337,12 @@ class Neural3D_NDC_Dataset(Dataset):
             else:
                 if split == "test":
                     continue
-            # if split == "train" and self.mode == "feature" and index != 8: continue
             
             N_cams +=1
             count = 0
-            # video_images_path = video_path.split('.')[0]
-            video_images_path = video_path[:-4]
-            image_path = os.path.join(video_path,"images")
+            video_images_path = video_path.split('.')[0]
+            # video_images_path = video_path[:-4]
+            image_path = os.path.join(video_images_path, "images")
             video_frames = cv2.VideoCapture(video_path)
             # print(video_images_path)
             if not os.path.exists(image_path):
@@ -363,9 +365,11 @@ class Neural3D_NDC_Dataset(Dataset):
                         this_count+=1
                     else:
                         break
-            
-            # object_folder = os.path.join(video_path.split('.')[0], "object_mask") if self.object_masks else None
-            object_folder = os.path.join(video_path.split('.')[0], "mask/Annotations") if self.object_masks else None
+                    
+            if split == "train" and self.cam_view is not None and os.path.basename(video_images_path) != self.cam_view: continue
+            # if split == "train" and self.mode == "feature" and os.path.basename(video_images_path) != self.cam_view: continue
+            object_folder = os.path.join(video_path.split('.')[0], "pseudo_label/object_mask") if self.object_masks else None
+            # object_folder = os.path.join(video_path.split('.')[0], "mask/Annotations") if self.object_masks else None
             gt_mask_folder = os.path.join(video_path.split('.')[0], "gt_mask", "man") if self.split == "test" and self.gt_mask else None
             images_path = os.listdir(image_path)
             images_path.sort()
